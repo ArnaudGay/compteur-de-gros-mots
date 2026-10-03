@@ -2,7 +2,7 @@
 
 import { currentSeason, episodePoints } from './commands';
 import type { Store } from './store';
-import { DAY, dayKey, dayRange, daysBetween, startOfDay, zonedParts } from './time';
+import { addDays, dayKey, dayRange, daysBetween, startOfDayKey, zonedParts } from './time';
 import type { Millis, PlayerStats, StatsRange, StatsView } from './types';
 import { episodeWord } from './views';
 
@@ -19,7 +19,8 @@ export function buildStats(store: Store, nowArg: Millis, range: StatsRange, seas
   const now = pastSeason?.endsAt ? Math.min(nowArg, pastSeason.endsAt - 1) : nowArg;
 
   let from: Millis;
-  if (range === '30d') from = Math.max(allFrom, startOfDay(now - 29 * DAY, tz));
+  // 30 jours calendaires, aujourd'hui compris (compter en jours, pas en heures : changements d'heure).
+  if (range === '30d') from = Math.max(allFrom, startOfDayKey(addDays(dayKey(now, tz), -29), tz));
   else if (range === 'season') from = Math.max(allFrom, (pastSeason ?? currentSeason(store, now))?.startsAt ?? allFrom);
   else from = allFrom;
   from = Math.min(from, now);

@@ -37,6 +37,22 @@ export interface PushSubscriptionInput {
 
 type Row = Record<string, unknown>;
 
+/** Abonnements gardés par joueur (un par appareil, en pratique). */
+const MAX_SUBSCRIPTIONS = 10;
+
+/** Services de notification des navigateurs : on n'envoie rien ailleurs. */
+const PUSH_HOSTS = ['push.apple.com', 'fcm.googleapis.com', 'push.services.mozilla.com', 'notify.windows.com'];
+
+export function isPushService(endpoint: string): boolean {
+  try {
+    const url = new URL(endpoint);
+    if (url.protocol !== 'https:' || url.port !== '') return false;
+    return PUSH_HOSTS.some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`));
+  } catch {
+    return false;
+  }
+}
+
 /** Mot censuré pour une notification : « p****n ». */
 export function censor(word: string): string {
   if (word.length <= 2) return word[0] + '*';
@@ -68,6 +84,12 @@ export class Push {
          ON CONFLICT (endpoint) DO UPDATE SET player_id = excluded.player_id, p256dh = excluded.p256dh, auth = excluded.auth`,
       )
       .run(sub.endpoint, playerId, sub.keys.p256dh, sub.keys.auth, now, userAgent?.slice(0, 300) ?? null);
+    this.db
+      .prepare(
+        `DELETE FROM push_subscriptions WHERE player_id = ? AND endpoint NOT IN
+         (SELECT endpoint FROM push_subscriptions WHERE player_id = ? ORDER BY created_at DESC LIMIT ?)`,
+      )
+      .run(playerId, playerId, MAX_SUBSCRIPTIONS);
   }
 
   unsubscribe(playerId: PlayerId, endpoint: string): void {
@@ -109,7 +131,7 @@ export class Push {
           await this.send(
             { endpoint: String(s.endpoint), keys: { p256dh: String(s.p256dh), auth: String(s.auth) } },
             JSON.stringify(payload),
-            { TTL: 6 * 3600, urgency: 'high', topic: payload.tag.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32) },
+            { TTL: 6 * 3600, urgency: 'high', topic: payload.tag.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32), timeout: 10_000 },
           );
           delivered += 1;
         } catch (error) {

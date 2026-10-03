@@ -47,6 +47,9 @@ export const DEFAULT_SETTINGS: Settings = {
 /** Anti-emballement : nombre maximal de taps par personne sur la fenêtre donnée. */
 export const RATE_LIMIT = { taps: 10, windowMs: 10_000 };
 
+/** Rattrapages (ajout différé, +N) : nombre maximal par personne sur la fenêtre donnée. */
+export const MANUAL_RATE_LIMIT = { adds: 10, windowMs: 10 * 60_000 };
+
 /** Écart toléré entre l'heure du téléphone et celle du serveur. */
 export const CLOCK = { maxFutureMs: 5_000, maxPastMs: 24 * HOUR };
 

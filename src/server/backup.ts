@@ -1,5 +1,5 @@
 // Sauvegardes : une copie cohérente de la base chaque nuit (vers 4 h, heure de Paris),
-// les 30 dernières sont gardées. Pour une copie hors du VPS, voir DEPLOY.md.
+// celles des 30 derniers jours sont gardées. Pour une copie hors du VPS, voir DEPLOY.md.
 
 import { mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -66,13 +66,14 @@ export class Backups {
     return this.run(now);
   }
 
+  /**
+   * Garde toutes les sauvegardes des `keep` derniers jours qui en ont : une sauvegarde faite
+   * à la main ne remplace jamais celle de la nuit.
+   */
   private prune(): void {
-    const daily = new Map<string, BackupInfo>();
-    for (const b of this.list()) {
-      const day = b.name.slice(PREFIX.length, PREFIX.length + 10);
-      if (daily.has(day)) rmSync(join(this.dir, b.name));
-      else daily.set(day, b);
-    }
-    [...daily.values()].slice(this.keep).forEach((b) => rmSync(join(this.dir, b.name)));
+    const dayOf = (b: BackupInfo) => b.name.slice(PREFIX.length, PREFIX.length + 10);
+    const backups = this.list();
+    const kept = new Set([...new Set(backups.map(dayOf))].slice(0, Math.max(1, this.keep)));
+    for (const b of backups) if (!kept.has(dayOf(b))) rmSync(join(this.dir, b.name));
   }
 }

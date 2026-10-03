@@ -2,6 +2,10 @@
 # Le flux temps réel (SSE) est transmis sans tampon automatiquement.
 {$DOMAIN} {
 	encode zstd gzip
+	# Aucune requête de l'app ne dépasse quelques kilo-octets.
+	request_body {
+		max_size 1MB
+	}
 	reverse_proxy app:8787
 	header -Server
 }

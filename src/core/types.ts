@@ -136,6 +136,8 @@ export interface EpisodeView {
   targetId: PlayerId;
   kind: EpisodeKind;
   startedAt: Millis;
+  /** Enregistrement du point par le serveur : le délai pour contester part de là. */
+  createdAt: Millis;
   points: number;
   voided: boolean;
   voidReason: VoidReason | null;

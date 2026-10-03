@@ -66,6 +66,8 @@ function toSession(r: Row): SessionInfo {
 export class Auth {
   private playerFailures = new Map<string, { count: number; first: number; lockedUntil: number }>();
   private ipFailures = new Map<string, { count: number; first: number }>();
+  /** Vérifications de code en cours : une seule à la fois par joueur et par adresse IP. */
+  private checking = new Set<string>();
 
   constructor(private readonly db: DB) {}
 
@@ -83,21 +85,34 @@ export class Auth {
     this.db.prepare('UPDATE players SET pin_hash = ?, pin_set_at = ? WHERE id = ?').run(pinHash, now, playerId);
   }
 
-  /** Vérifie un code en appliquant les blocages ; renvoie l'erreur à afficher. */
+  /**
+   * Vérifie un code en appliquant les blocages ; renvoie l'erreur à afficher. Les essais
+   * passent un par un (par joueur et par adresse IP) : envoyer cent essais d'un coup ne
+   * permet pas d'en faire vérifier plus que le blocage n'en autorise.
+   */
   async checkPin(playerId: string, pin: string, ip: string, now: number): Promise<void> {
     this.assertNotLocked(playerId, ip, now);
-    const row = this.db.prepare('SELECT pin_hash, archived_at FROM players WHERE id = ?').get(playerId) as Row | undefined;
-    const pinHash = row && row.archived_at === null ? row.pin_hash : null;
-    const ok = typeof pinHash === 'string' && /^\d{6}$/.test(pin) && (await verify(pinHash, pin).catch(() => false));
-    if (!ok) {
-      const remaining = this.recordFailure(playerId, ip, now);
-      if (!pinHash) throw new DomainError('invalid', "Pas encore de code pour ce compte : il faut d'abord ouvrir le lien d'invitation.");
-      throw new DomainError(
-        remaining > 0 ? 'invalid' : 'locked',
-        remaining > 0 ? `Code incorrect. Encore ${remaining} essai${remaining > 1 ? 's' : ''}.` : "Trop d'essais : réessaie dans 15 minutes.",
-      );
+    const keys = [`player:${playerId}`, `ip:${ip}`];
+    if (keys.some((key) => this.checking.has(key))) {
+      throw new DomainError('locked', 'Une vérification est déjà en cours : réessaie dans un instant.');
     }
-    this.playerFailures.delete(playerId);
+    for (const key of keys) this.checking.add(key);
+    try {
+      const row = this.db.prepare('SELECT pin_hash, archived_at FROM players WHERE id = ?').get(playerId) as Row | undefined;
+      const pinHash = row && row.archived_at === null ? row.pin_hash : null;
+      const ok = typeof pinHash === 'string' && /^\d{6}$/.test(pin) && (await verify(pinHash, pin).catch(() => false));
+      if (!ok) {
+        const remaining = this.recordFailure(playerId, ip, now);
+        if (!pinHash) throw new DomainError('invalid', "Pas encore de code pour ce compte : il faut d'abord ouvrir le lien d'invitation.");
+        throw new DomainError(
+          remaining > 0 ? 'invalid' : 'locked',
+          remaining > 0 ? `Code incorrect. Encore ${remaining} essai${remaining > 1 ? 's' : ''}.` : "Trop d'essais : réessaie dans 15 minutes.",
+        );
+      }
+      this.playerFailures.delete(playerId);
+    } finally {
+      for (const key of keys) this.checking.delete(key);
+    }
   }
 
   private assertNotLocked(playerId: string, ip: string, now: number): void {
@@ -162,6 +177,15 @@ export class Auth {
     this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
   }
 
+  /** Déconnecte les autres appareils d'un joueur ; renvoie les sessions supprimées. */
+  revokeOtherSessions(playerId: string, keepId: string | null): string[] {
+    const ids = this.listSessions(playerId)
+      .map((s) => s.id)
+      .filter((id) => id !== keepId);
+    for (const id of ids) this.revokeSession(id);
+    return ids;
+  }
+
   listSessions(playerId?: string): SessionInfo[] {
     const rows = playerId
       ? this.db.prepare('SELECT * FROM sessions WHERE player_id = ? ORDER BY last_seen_at DESC').all(playerId)
@@ -171,12 +195,16 @@ export class Auth {
 
   // --- Invitations -----------------------------------------------------------------
 
+  /** Nouveau lien d'invitation ; les liens précédents de ce joueur, pas encore utilisés, ne marchent plus. */
   createInvitation(playerId: string, createdBy: string | null, now: number): { token: string; expiresAt: number } {
     const token = randomToken(24);
     const expiresAt = now + INVITE_TTL;
-    this.db
-      .prepare('INSERT INTO invitations (id, player_id, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?)')
-      .run(sha256(token), playerId, createdBy, now, expiresAt);
+    this.db.transaction(() => {
+      this.db.prepare('UPDATE invitations SET expires_at = ? WHERE player_id = ? AND used_at IS NULL AND expires_at > ?').run(now, playerId, now);
+      this.db
+        .prepare('INSERT INTO invitations (id, player_id, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?)')
+        .run(sha256(token), playerId, createdBy, now, expiresAt);
+    })();
     return { token, expiresAt };
   }
 
@@ -188,8 +216,19 @@ export class Auth {
     return { id: String(row.id), playerId: String(row.player_id), expiresAt: Number(row.expires_at) };
   }
 
-  markInvitationUsed(id: string, now: number): void {
-    this.db.prepare('UPDATE invitations SET used_at = ? WHERE id = ?').run(now, id);
+  /**
+   * Réserve un lien d'invitation pour soi : un seul appel peut réussir, même si le lien
+   * est ouvert deux fois au même instant. `releaseInvitation` le rend si la suite échoue.
+   */
+  claimInvitation(token: string, now: number): { id: string; playerId: string } {
+    const invitation = this.findInvitation(token, now);
+    const claimed = this.db.prepare('UPDATE invitations SET used_at = ? WHERE id = ? AND used_at IS NULL AND expires_at > ?').run(now, invitation.id, now);
+    if (claimed.changes !== 1) throw new DomainError('expired', "Ce lien a déjà servi. Demande-en un nouveau à l'admin si besoin.");
+    return { id: invitation.id, playerId: invitation.playerId };
+  }
+
+  releaseInvitation(id: string): void {
+    this.db.prepare('UPDATE invitations SET used_at = NULL WHERE id = ?').run(id);
   }
 
   hasPendingInvitation(playerId: string, now: number): boolean {

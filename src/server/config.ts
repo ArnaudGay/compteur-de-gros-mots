@@ -47,6 +47,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     trustProxy: (env.TRUST_PROXY ?? (production ? '1' : '0')) === '1',
     seedPlayers: parsePlayers(env.PLAYERS),
     vapid: env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY ? { publicKey: env.VAPID_PUBLIC_KEY, privateKey: env.VAPID_PRIVATE_KEY } : null,
-    backupKeep: Number(env.BACKUP_KEEP ?? 30),
+    backupKeep: Math.max(1, Math.floor(Number(env.BACKUP_KEEP) || 30)),
   };
 }

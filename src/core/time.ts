@@ -93,6 +93,12 @@ export function dayKey(ms: Millis, timeZone: string): string {
   return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
 }
 
+/** Minuit, dans le fuseau, du jour donné au format AAAA-MM-JJ. */
+export function startOfDayKey(key: string, timeZone: string): Millis {
+  const [y, m, d] = key.split('-').map(Number);
+  return zonedToUtc(y ?? 1970, m ?? 1, d ?? 1, 0, 0, timeZone);
+}
+
 function keyToUtcNoon(key: string): number {
   const [y, m, d] = key.split('-').map(Number);
   return Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1, 12);

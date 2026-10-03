@@ -1,9 +1,9 @@
 // Toutes les actions qui modifient l'état. Chaque fonction vérifie d'abord, puis écrit :
 // une action refusée ne laisse aucune trace. Les messages d'erreur sont affichés tels quels.
 
-import { CLOCK, LIMITS, PLAYER_HUES, RATE_LIMIT } from './defaults';
+import { CLOCK, LIMITS, MANUAL_RATE_LIMIT, PLAYER_HUES, RATE_LIMIT } from './defaults';
 import { fail } from './errors';
-import { activeReporters, decideMerge, pointsOf, type EpisodeLike, type ReportLike } from './merge';
+import { activeReporters, boundariesOf, decideMerge, pointsOf, segmentOf, type EpisodeLike, type ReportLike } from './merge';
 import type { Store } from './store';
 import type {
   ActionResult,
@@ -88,7 +88,11 @@ function requireReport(store: Store, reportId: string): Report {
 function requireOwnReport(store: Store, ctx: Ctx, reportId: string): { report: Report; actor: Player } {
   const actor = requireActor(store, ctx);
   const report = requireReport(store, reportId);
-  if (report.reporterId !== actor.id && !actor.isAdmin) fail('forbidden', "Seul l'auteur du signalement peut faire ça.");
+  if (report.reporterId !== actor.id) {
+    if (!actor.isAdmin) fail('forbidden', "Seul l'auteur du signalement peut faire ça.");
+    // Même l'admin ne retire pas un point qui le vise : comme tout le monde, il peut le contester.
+    if (report.targetId === actor.id) fail('forbidden', 'Un point qui te vise ne se retire pas : tu peux demander la VAR.');
+  }
   return { report, actor };
 }
 
@@ -117,12 +121,12 @@ export function clampOccurredAt(occurredAt: Millis | undefined, now: Millis): Mi
 }
 
 function earliestStart(store: Store, episode: Episode): Millis {
-  const reports = store.reportsOf(episode.id);
-  if (reports.length === 0) return episode.startedAt;
-  return Math.min(...reports.map((r) => r.occurredAt));
+  const active = store.reportsOf(episode.id).filter((r) => r.cancelledAt === null);
+  if (active.length === 0) return episode.startedAt;
+  return Math.min(...active.map((r) => r.occurredAt));
 }
 
-/** Recale le début d'un épisode en direct sur son premier signalement. */
+/** Recale le début d'un épisode en direct sur son premier signalement encore actif. */
 function refreshStart(store: Store, episodeId: string): void {
   const episode = store.episodes.get(episodeId);
   if (!episode || episode.kind !== 'live') return;
@@ -130,12 +134,33 @@ function refreshStart(store: Store, episodeId: string): void {
   if (startedAt !== episode.startedAt) store.putEpisode({ ...episode, startedAt });
 }
 
+/** Anti-emballement des taps en direct (les annulés comptent : sinon, chaque tap notifierait quand même). */
 function checkRateLimit(store: Store, reporterId: PlayerId, at: Millis, count: number): void {
   let recent = count;
   for (const r of store.reports.values()) {
-    if (r.reporterId === reporterId && Math.abs(r.occurredAt - at) < RATE_LIMIT.windowMs) recent += r.count;
+    if (r.reporterId === reporterId && r.link !== 'manual' && Math.abs(r.occurredAt - at) < RATE_LIMIT.windowMs) recent += r.count;
   }
   if (recent > RATE_LIMIT.taps) fail('rate_limited', 'Doucement : 10 gros mots maximum en 10 secondes.');
+}
+
+/** Les rattrapages ont leur propre limite, comptée à la réception. */
+function checkManualRateLimit(store: Store, reporterId: PlayerId, now: Millis): void {
+  let recent = 0;
+  for (const r of store.reports.values()) {
+    if (r.reporterId === reporterId && r.link === 'manual' && now - r.receivedAt < MANUAL_RATE_LIMIT.windowMs) recent += 1;
+  }
+  if (recent >= MANUAL_RATE_LIMIT.adds) fail('rate_limited', 'Doucement : 10 rattrapages maximum en 10 minutes.');
+}
+
+function boundaries(store: Store): Millis[] {
+  return boundariesOf(store.settings.challengeStartedAt, store.seasons.values());
+}
+
+/** Un point en cours de vote, ou déjà jugé, ne se découpe plus et ne se regroupe plus. */
+function requireNotJudged(store: Store, episodeId: string): void {
+  const contests = store.contestsOf(episodeId);
+  if (contests.some((c) => c.status === 'open')) fail('conflict', 'Une VAR est en cours sur ce point : attends le résultat du vote.');
+  if (contests.some((c) => c.status === 'accepted' || c.status === 'rejected')) fail('invalid', 'Ce point a été jugé par la VAR : il ne peut plus être modifié.');
 }
 
 function openContestOf(store: Store, episodeId: string): Contest | undefined {
@@ -187,7 +212,7 @@ export function report(store: Store, ctx: Ctx, input: ReportInput): ReportResult
   const word = normalizeWord(input.word);
 
   const candidates = store.episodesOf(target.id).map((e) => toEpisodeLike(store, e));
-  const decision = decideMerge(candidates, { targetId: target.id, reporterId: actor.id, occurredAt, count }, store.settings);
+  const decision = decideMerge(candidates, { targetId: target.id, reporterId: actor.id, occurredAt, count }, store.settings, boundaries(store));
 
   let episode: Episode;
   let outcome: ReportResult['outcome'];
@@ -272,6 +297,7 @@ export function addManual(store: Store, ctx: Ctx, input: ManualInput): ReportRes
     return { reportId: existing.id, episodeId: existing.episodeId, outcome: 'duplicate', delta: 0, otherReporterIds: [], episodeAgeMs: 0, suggestion: null };
   }
   const target = requireTarget(store, input.targetId);
+  checkManualRateLimit(store, actor.id, ctx.now);
   const count = requireInt(input.count, 1, LIMITS.manualCountMax, `Entre 1 et ${LIMITS.manualCountMax} points à la fois.`);
   if (!Number.isFinite(input.occurredAt) || input.occurredAt > ctx.now + CLOCK.maxFutureMs) fail('invalid', "L'heure ne peut pas être dans le futur.");
   if (input.occurredAt < ctx.now - LIMITS.manualMaxPastMs) fail('invalid', 'On ne peut pas rattraper un gros mot de plus de 60 jours.');
@@ -321,6 +347,7 @@ export function cancelReport(store: Store, ctx: Ctx, input: { reportId: string }
   const episode = requireEpisode(store, row.episodeId);
   const before = episodePoints(store, episode);
   store.putReport({ ...row, cancelledAt: ctx.now, cancelledBy: actor.id });
+  refreshStart(store, episode.id);
   const after = episodePoints(store, episode);
   store.log({ at: ctx.now, actorId: actor.id, action: 'cancel', data: { reportId: row.id, episodeId: episode.id } });
 
@@ -336,6 +363,7 @@ export function splitReport(store: Store, ctx: Ctx, input: { reportId: string })
   if (row.cancelledAt !== null) fail('invalid', 'Ce signalement a été annulé.');
   const episode = requireEpisode(store, row.episodeId);
   if (episode.kind !== 'live' || episode.voidedAt !== null) fail('invalid', 'Ce point ne peut pas être séparé.');
+  requireNotJudged(store, episode.id);
   const others = store.reportsOf(episode.id).filter((r) => r.id !== row.id && r.cancelledAt === null);
   if (others.length === 0) fail('invalid', 'Ce signalement compte déjà comme un gros mot à part.');
 
@@ -372,8 +400,16 @@ export function mergeReport(store: Store, ctx: Ctx, input: { reportId: string; e
   const dest = requireEpisode(store, input.episodeId);
   if (dest.id === source.id) return { delta: 0 };
   if (dest.targetId !== row.targetId) fail('invalid', 'Ce point ne vise pas la même personne.');
-  if (dest.kind !== 'live' || dest.voidedAt !== null || source.kind !== 'live') fail('invalid', 'Ces points ne peuvent pas être regroupés.');
+  if (dest.kind !== 'live' || dest.voidedAt !== null || source.kind !== 'live' || source.voidedAt !== null) {
+    fail('invalid', 'Ces points ne peuvent pas être regroupés.');
+  }
   if (Math.abs(row.occurredAt - dest.startedAt) > LIMITS.manualMergeMaxMs) fail('invalid', 'Ces deux points sont trop éloignés dans le temps.');
+  const limits = boundaries(store);
+  if (segmentOf(row.occurredAt, limits) !== segmentOf(dest.startedAt, limits)) {
+    fail('invalid', 'Le lancement du défi ou un changement de saison sépare ces deux points.');
+  }
+  requireNotJudged(store, source.id);
+  requireNotJudged(store, dest.id);
 
   const before = episodePoints(store, source) + episodePoints(store, dest);
   store.putReport({ ...row, episodeId: dest.id, link: 'merged' });
@@ -385,9 +421,6 @@ export function mergeReport(store: Store, ctx: Ctx, input: { reportId: string; e
   }
   const after = episodePoints(store, requireEpisode(store, source.id)) + episodePoints(store, requireEpisode(store, dest.id));
   store.log({ at: ctx.now, actorId: actor.id, action: 'merge', data: { reportId: row.id, from: source.id, to: dest.id } });
-
-  const contest = openContestOf(store, source.id);
-  if (contest && episodePoints(store, requireEpisode(store, source.id)) === 0) resolveContest(store, contest, ctx.now, 'accepted');
   return { delta: after - before };
 }
 
@@ -409,7 +442,8 @@ export function openContest(store: Store, ctx: Ctx, input: { episodeId: string; 
   const episode = requireEpisode(store, input.episodeId);
   if (episode.targetId !== actor.id) fail('forbidden', 'Seule la personne visée peut contester ce point.');
   if (episode.voidedAt !== null || episodePoints(store, episode) === 0) fail('invalid', 'Ce point ne compte déjà plus.');
-  if (ctx.now - episode.startedAt > store.settings.contestWindowMs) {
+  // Le délai court depuis l'enregistrement du point : un rattrapage daté d'il y a trois jours reste contestable.
+  if (ctx.now - episode.createdAt > store.settings.contestWindowMs) {
     fail('expired', `Le délai pour contester (${Math.round(store.settings.contestWindowMs / 3_600_000)} h) est dépassé.`);
   }
   const previous = store.contestsOf(episode.id);
@@ -439,7 +473,7 @@ export function vote(store: Store, ctx: Ctx, input: { contestId: string; choice:
   const actor = requireActor(store, ctx);
   const contest = store.contests.get(input.contestId);
   if (!contest) fail('not_found', 'Contestation introuvable.');
-  if (contest.status !== 'open') fail('conflict', 'Le vote est terminé.');
+  if (contest.status !== 'open' || ctx.now >= contest.deadline) fail('conflict', 'Le vote est terminé.');
   if (input.choice !== 'valid' && input.choice !== 'invalid') fail('invalid', 'Vote invalide.');
   if (!eligibleVoters(store, contest).includes(actor.id)) fail('forbidden', 'Tu ne peux pas voter sur ce point.');
 
@@ -454,7 +488,7 @@ export function withdrawContest(store: Store, ctx: Ctx, input: { contestId: stri
   const contest = store.contests.get(input.contestId);
   if (!contest) fail('not_found', 'Contestation introuvable.');
   if (contest.openedBy !== actor.id) fail('forbidden', 'Seule la personne qui conteste peut retirer sa contestation.');
-  if (contest.status !== 'open') fail('conflict', 'Le vote est déjà terminé.');
+  if (contest.status !== 'open' || ctx.now >= contest.deadline) fail('conflict', 'Le vote est déjà terminé.');
   return resolveContest(store, contest, ctx.now, 'withdrawn', actor.id);
 }
 
@@ -510,11 +544,13 @@ export function resolveDueContests(store: Store, now: Millis): number {
 export function voidEpisode(store: Store, ctx: Ctx, input: { episodeId: string; note?: string | null }): ActionResult {
   const actor = requireAdmin(store, ctx);
   const episode = requireEpisode(store, input.episodeId);
+  if (episode.targetId === actor.id) fail('forbidden', 'Un point qui te vise ne se retire pas : tu peux demander la VAR.');
   if (episode.voidedAt !== null) return { delta: 0 };
   const before = episodePoints(store, episode);
   store.putEpisode({ ...episode, voidedAt: ctx.now, voidedBy: actor.id, voidReason: 'admin', voidNote: cleanText(input.note, LIMITS.reasonMax) });
+  // Une VAR en cours n'a plus d'objet : elle est close sans verdict, et pourra être relancée si le point est rétabli.
   const contest = openContestOf(store, episode.id);
-  if (contest) resolveContest(store, contest, ctx.now, 'accepted', actor.id);
+  if (contest) resolveContest(store, contest, ctx.now, 'withdrawn', actor.id);
   store.log({ at: ctx.now, actorId: actor.id, action: 'void', data: { episodeId: episode.id, note: input.note ?? null } });
   return { delta: -before };
 }

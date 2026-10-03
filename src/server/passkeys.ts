@@ -60,6 +60,10 @@ export class Passkeys {
     this.db.prepare('DELETE FROM passkeys WHERE id = ? AND player_id = ?').run(id, playerId);
   }
 
+  removeAll(playerId: string): void {
+    this.db.prepare('DELETE FROM passkeys WHERE player_id = ?').run(playerId);
+  }
+
   async registrationOptions(player: Player, sessionId: string, now: number) {
     const existing = this.db.prepare('SELECT id, transports FROM passkeys WHERE player_id = ?').all(player.id) as Row[];
     const options = await generateRegistrationOptions({
@@ -90,11 +94,12 @@ export class Passkeys {
     }).catch(() => ({ verified: false as const }));
     if (!result.verified) throw new DomainError('invalid', "Face ID n'a pas pu être activé. Réessaie.");
     const { credential } = result.registrationInfo;
-    this.db
+    // Jamais de remplacement : une passkey déjà enregistrée (par ce compte ou un autre) est refusée.
+    const inserted = this.db
       .prepare(
         `INSERT INTO passkeys (id, player_id, public_key, counter, transports, created_at, label)
          VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT (id) DO UPDATE SET public_key = excluded.public_key, counter = excluded.counter`,
+         ON CONFLICT (id) DO NOTHING`,
       )
       .run(
         credential.id,
@@ -105,6 +110,7 @@ export class Passkeys {
         now,
         label?.slice(0, 40) ?? null,
       );
+    if (inserted.changes !== 1) throw new DomainError('conflict', 'Cette passkey est déjà enregistrée.');
   }
 
   async authenticationOptions(now: number) {

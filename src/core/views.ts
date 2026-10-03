@@ -68,6 +68,7 @@ export function episodeView(store: Store, episode: Episode): EpisodeView {
     targetId: episode.targetId,
     kind: episode.kind,
     startedAt: episode.startedAt,
+    createdAt: episode.createdAt,
     points: episodePoints(store, episode),
     voided: episode.voidedAt !== null,
     voidReason: episode.voidReason,

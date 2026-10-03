@@ -110,6 +110,7 @@ export function applyPending(snap: Snapshot | null, pending: PendingTap[]): Snap
         targetId: tap.targetId,
         kind: 'live',
         startedAt: tap.occurredAt,
+        createdAt: tap.occurredAt,
         points: tap.count,
         voided: false,
         voidReason: null,

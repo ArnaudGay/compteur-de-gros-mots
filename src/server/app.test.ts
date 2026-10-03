@@ -326,3 +326,101 @@ describe('persistance', () => {
     restored.close();
   });
 });
+
+describe('relecture de sécurité', () => {
+  it('des essais de code envoyés tous en même temps sont vérifiés un par un', async () => {
+    const t = setup();
+    await t.join('gatho', '314159');
+    const intruder = t.phone();
+    const burst = await Promise.all(
+      Array.from({ length: 30 }, (_, i) => intruder.call('POST', '/api/auth/login', { playerId: 'gatho', pin: i === 29 ? '314159' : '000001' })),
+    );
+    const statuses = burst.map((r) => r.status);
+    expect(statuses.filter((s) => s === 200)).toHaveLength(0);
+    expect(statuses.filter((s) => s === 400)).toHaveLength(1);
+    for (let i = 0; i < 4; i++) await intruder.call('POST', '/api/auth/login', { playerId: 'gatho', pin: '000001' });
+    expect((await intruder.call('POST', '/api/auth/login', { playerId: 'gatho', pin: '314159' })).status).toBe(423);
+  });
+
+  it('un nouveau lien annule les précédents, et un lien ne sert qu’une fois, même ouvert deux fois au même instant', async () => {
+    const t = setup();
+    const first = t.auth.createInvitation('alexis', null, t.now);
+    const second = t.auth.createInvitation('alexis', null, t.now);
+    expect((await t.phone().call('GET', `/api/auth/invitation/${first.token}`)).status).toBe(410);
+    const [a, b] = await Promise.all([
+      t.phone().call('POST', `/api/auth/invitation/${second.token}`, { pin: '271828' }),
+      t.phone().call('POST', `/api/auth/invitation/${second.token}`, { pin: '662607' }),
+    ]);
+    expect([a.status, b.status].sort()).toEqual([200, 410]);
+  });
+
+  it('un nouveau code déconnecte les autres appareils', async () => {
+    const t = setup();
+    const phone = await t.join('alexis', '271828');
+    const tablet = t.phone();
+    expect((await tablet.call('POST', '/api/auth/login', { playerId: 'alexis', pin: '271828' })).status).toBe(200);
+    const change = await phone.call('PUT', '/api/me/pin', { currentPin: '271828', newPin: '662607' });
+    expect(change.data).toMatchObject({ ok: true, signedOut: 1 });
+    expect((await tablet.call('GET', '/api/me')).status).toBe(401);
+    expect((await phone.call('GET', '/api/me')).status).toBe(200);
+    // Nouveau lien d'invitation (code oublié, compte repris) : toutes les sessions tombent.
+    const fresh = await t.join('alexis', '577215');
+    expect((await phone.call('GET', '/api/me')).status).toBe(401);
+    expect((await fresh.call('GET', '/api/me')).status).toBe(200);
+  });
+
+  it('refuse les requêtes trop volumineuses', async () => {
+    const t = setup();
+    const res = await t.phone().call('POST', '/api/auth/login', { playerId: 'alexis', pin: 'x'.repeat(100_000) });
+    expect(res.status).toBe(413);
+  });
+
+  it('révoquer un lien spectateur coupe aussi les flux déjà ouverts', async () => {
+    const t = setup();
+    const arnaud = await t.join('arnaud', '141421');
+    const link = await arnaud.call('POST', '/api/admin/spectator-links');
+    const token = String(link.data.url).split('/').pop();
+    const res = await t.app.request(`/api/spectator/${token}/stream`);
+    const reader = res.body!.getReader();
+    await reader.read();
+    expect(t.hub.size).toBe(1);
+    await arnaud.call('DELETE', `/api/admin/spectator-links/${link.data.id}`);
+    expect(t.hub.size).toBe(0);
+    let done = false;
+    while (!done) done = (await reader.read()).done;
+    expect(done).toBe(true);
+  });
+
+  it('notifications : seulement vers les services connus, 10 appareils au plus', async () => {
+    const t = setup();
+    const alexis = await t.join('alexis', '271828');
+    const keys = { p256dh: 'BPk'.padEnd(87, 'x'), auth: 'abc'.padEnd(22, 'y') };
+    for (const endpoint of ['https://169.254.169.254/latest', 'https://app:8787/api', 'http://web.push.apple.com/x', 'https://web.push.apple.com.evil.example/x']) {
+      expect((await alexis.call('POST', '/api/me/push', { endpoint, keys })).status).toBe(400);
+    }
+    for (let i = 0; i < 12; i++) {
+      t.advance(1000);
+      expect((await alexis.call('POST', '/api/me/push', { endpoint: `https://web.push.apple.com/device-${i}`, keys })).status).toBe(200);
+    }
+    expect(t.push.count('alexis')).toBe(10);
+  });
+
+  it('export CSV : aucun texte ne devient une formule', async () => {
+    const t = setup();
+    const arnaud = await t.join('arnaud', '141421');
+    await arnaud.call('POST', '/api/reports', { id: 'tap-export-0002', targetId: 'gatho', word: '=HYPERLINK("x")' });
+    const csv = await arnaud.call('GET', '/api/admin/export.csv');
+    expect(csv.data).toContain(`"'=hyperlink(""x"")"`);
+  });
+
+  it('une sauvegarde faite à la main ne remplace pas celle de la nuit', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'grosmots-'));
+    cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
+    const t = setup(join(dir, 'test.sqlite'), dir);
+    const backups = new Backups(t.db, join(dir, 'backups'), 30, 'Europe/Paris');
+    const night = await backups.runDailyIfDue(Date.UTC(2026, 9, 5, 2, 10));
+    const manual = await backups.run(Date.UTC(2026, 9, 5, 13, 0));
+    expect(backups.list().map((b) => b.name).sort()).toEqual([night?.name, manual.name].sort());
+    t.db.close();
+  });
+});

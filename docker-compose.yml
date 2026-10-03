@@ -9,6 +9,9 @@ services:
     environment:
       PUBLIC_ORIGIN: https://${DOMAIN:-grosmots.arnaudgay.fr}
       TRUST_PROXY: "1"
+      # Facultatif : joueurs créés au tout premier démarrage, et jours de sauvegardes gardés.
+      PLAYERS: ${PLAYERS:-}
+      BACKUP_KEEP: ${BACKUP_KEEP:-30}
       # Facultatif : clés VAPID fixes pour les notifications (sinon générées et gardées dans la base).
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}

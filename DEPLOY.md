@@ -60,7 +60,7 @@ Pas de Caddy dans ce cas : Dokploy s'occupe du domaine et du HTTPS.
 
 1. Dans Dokploy, crée une **Application** reliée au dépôt GitHub `ArnaudGay/compteur-de-gros-mots`, type de construction **Dockerfile**.
 2. Variables d'environnement : `PUBLIC_ORIGIN=https://grosmots.arnaudgay.fr` et `TRUST_PROXY=1`.
-3. Ajoute un **volume** monté sur `/data` (indispensable : c'est là que vivent la base et les sauvegardes).
+3. Ajoute un **volume** de type « Volume Mount » (volume Docker nommé) monté sur `/data` : c'est là que vivent la base et les sauvegardes. Si tu préfères un « Bind Mount » vers un dossier du VPS, donne-le d'abord à l'utilisateur de l'app (`sudo chown -R 1000:1000 /chemin/du/dossier`), sinon l'app ne peut pas y écrire et s'arrête au démarrage.
 4. Domaine : `grosmots.arnaudgay.fr`, port du conteneur `8787`, HTTPS avec Let's Encrypt.
 5. Déploie, puis passe à l'étape 5 (le lien d'invitation est dans les journaux de l'application).
 
@@ -153,7 +153,7 @@ L'app est coupée 2 ou 3 secondes. Les téléphones se reconnectent seuls, et le
 
 ## Sauvegardes
 
-- **Automatiques** : chaque nuit vers 4 h, une copie de la base dans le volume (`/data/backups`), 30 jours gardés.
+- **Automatiques** : chaque nuit vers 4 h, une copie de la base dans le volume (`/data/backups`), 30 jours gardés. Une sauvegarde faite à la main s'ajoute à celle de la nuit sans la remplacer.
 - **À la demande** : `docker compose exec app node dist/server/cli.js backup`, ou depuis l'app (**Administration → Sauvegarder maintenant**, puis téléchargement).
 - **Hors du VPS** (conseillé : si le VPS disparaît, les sauvegardes aussi) : copie régulière vers un autre endroit. Par exemple, depuis ton ordinateur :
 
@@ -195,7 +195,7 @@ Journaux : `docker compose logs -f app` et `docker compose logs -f caddy`.
 | `PUBLIC_ORIGIN` | Adresse complète vue par les téléphones | `https://$DOMAIN` |
 | `TRUST_PROXY` | Lire l'adresse IP réelle derrière Caddy | `1` |
 | `DATA_DIR` | Dossier de la base et des sauvegardes | `/data` |
-| `BACKUP_KEEP` | Nombre de sauvegardes quotidiennes gardées | `30` |
+| `BACKUP_KEEP` | Nombre de jours de sauvegardes gardés | `30` |
 | `PLAYERS` | Joueurs créés au premier démarrage | les 4 joueurs du défi |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Clés des notifications (sinon générées et gardées dans la base) | — |
 

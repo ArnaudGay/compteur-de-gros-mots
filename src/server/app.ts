@@ -4,6 +4,7 @@
 import { serveStatic } from '@hono/node-server/serve-static';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { Hono, type Context, type MiddlewareHandler } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { streamSSE } from 'hono/streaming';
 import { readFileSync } from 'node:fs';
@@ -14,13 +15,13 @@ import { buildStats } from '../core/stats';
 import { dayKey, zonedParts } from '../core/time';
 import type { Player, PlayerId } from '../core/types';
 import { episodeView, history } from '../core/views';
-import { SESSION_COOKIE, SESSION_TTL, sha256, randomToken, type Auth, type SessionInfo } from './auth';
+import { SESSION_COOKIE, SESSION_TTL, pinProblem, sha256, randomToken, type Auth, type SessionInfo } from './auth';
 import type { Backups } from './backup';
 import type { Config } from './config';
 import type { DB } from './db';
 import type { Game } from './game';
 import type { Passkeys } from './passkeys';
-import type { Push } from './push';
+import { isPushService, type Push } from './push';
 import type { Hub } from './realtime';
 import { APP_VERSION } from './version';
 
@@ -131,6 +132,15 @@ export function createApp(deps: Deps): Hono<Env> {
     if (https) c.header('Strict-Transport-Security', 'max-age=31536000');
   });
 
+  // Aucune requête légitime ne dépasse quelques kilo-octets.
+  app.use(
+    '/api/*',
+    bodyLimit({
+      maxSize: 64 * 1024,
+      onError: (c) => c.json({ error: { code: 'invalid', message: 'Requête trop volumineuse.' } }, 413),
+    }),
+  );
+
   app.use('/api/*', async (c, next) => {
     // Seules les requêtes venant de l'app elle-même peuvent modifier quelque chose.
     if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) && c.req.header('origin') !== config.publicOrigin) {
@@ -201,10 +211,19 @@ export function createApp(deps: Deps): Hono<Env> {
 
   app.post('/api/auth/invitation/:token', async (c) => {
     const body = await input(c, z.object({ pin: Pin }));
+    const problem = pinProblem(body.pin);
+    if (problem) throw new DomainError('invalid', problem);
     const now = game.now();
-    const invitation = auth.findInvitation(c.req.param('token'), now);
-    await auth.setPin(invitation.playerId, body.pin, now);
-    auth.markInvitationUsed(invitation.id, now);
+    const invitation = auth.claimInvitation(c.req.param('token'), now);
+    try {
+      await auth.setPin(invitation.playerId, body.pin, now);
+    } catch (error) {
+      auth.releaseInvitation(invitation.id);
+      throw error;
+    }
+    // Nouveau départ pour ce compte : les autres appareils et les passkeys ne servent plus.
+    for (const id of auth.revokeOtherSessions(invitation.playerId, null)) hub.disconnectSession(id);
+    passkeys.removeAll(invitation.playerId);
     return login(c, invitation.playerId, 'invite');
   });
 
@@ -218,47 +237,74 @@ export function createApp(deps: Deps): Hono<Env> {
 
   // --- Spectateur (lecture seule, lien secret) -----------------------------------------
 
-  const spectatorOk = (token: string) => {
-    const row = deps.db.prepare('SELECT revoked_at FROM spectator_links WHERE token = ?').get(token) as { revoked_at: number | null } | undefined;
+  /** Renvoie l'identifiant du lien spectateur, s'il est encore valable. */
+  const spectatorLink = (token: string): string => {
+    const row = deps.db.prepare('SELECT id, revoked_at FROM spectator_links WHERE token = ?').get(token) as
+      | { id: string; revoked_at: number | null }
+      | undefined;
     if (!row || row.revoked_at !== null) throw new DomainError('not_found', "Ce lien spectateur n'est plus valable.");
+    return row.id;
   };
 
   app.get('/api/spectator/:token', (c) => {
-    spectatorOk(c.req.param('token'));
+    spectatorLink(c.req.param('token'));
     return c.json(game.snapshot());
   });
 
-  const stream = (c: Ctx, sessionId: string | null) =>
+  const stream = (c: Ctx, owner: { sessionId: string | null; linkId: string | null }) =>
     streamSSE(c, async (s) => {
       let open = true;
+      // Envois pas encore partis sur le réseau : un téléphone qui ne lit plus est lâché
+      // plutôt que de garder ses états en mémoire.
+      let pending = 0;
+      // Réveille la boucle des signes de vie pour terminer la réponse sans attendre.
+      let wake = () => {};
       const client = hub.add({
-        sessionId,
+        ...owner,
         send: (event, data) => {
-          void s.writeSSE({ event, data }).catch(() => {
-            open = false;
-          });
+          if (pending >= 3) {
+            client.close();
+            hub.remove(client.id);
+            return;
+          }
+          pending += 1;
+          s.writeSSE({ event, data })
+            .then(() => {
+              pending -= 1;
+            })
+            .catch(() => {
+              open = false;
+            });
         },
         close: () => {
           open = false;
           s.abort();
+          wake();
         },
       });
       s.onAbort(() => {
         open = false;
         hub.remove(client.id);
+        wake();
       });
       c.header('X-Accel-Buffering', 'no');
       await s.writeSSE({ event: 'snapshot', data: JSON.stringify(game.snapshot()), retry: 3000 });
       while (open && !s.aborted) {
-        await s.sleep(20_000);
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 20_000);
+          wake = () => {
+            clearTimeout(timer);
+            resolve();
+          };
+        });
         if (open && !s.aborted) await s.writeSSE({ event: 'ping', data: String(game.now()) });
       }
       hub.remove(client.id);
     });
 
   app.get('/api/spectator/:token/stream', (c) => {
-    spectatorOk(c.req.param('token'));
-    return stream(c, null);
+    const linkId = spectatorLink(c.req.param('token'));
+    return stream(c, { sessionId: null, linkId });
   });
 
   // --- Joueurs connectés -----------------------------------------------------------------
@@ -283,7 +329,10 @@ export function createApp(deps: Deps): Hono<Env> {
     const now = game.now();
     await auth.checkPin(p.id, body.currentPin, clientIp(c), now);
     await auth.setPin(p.id, body.newPin, now);
-    return c.json({ ok: true });
+    // Les autres appareils se reconnecteront avec le nouveau code.
+    const revoked = auth.revokeOtherSessions(p.id, c.get('session')?.id ?? null);
+    for (const id of revoked) hub.disconnectSession(id);
+    return c.json({ ok: true, signedOut: revoked.length });
   });
 
   app.get('/api/me/sessions', (c) => {
@@ -325,6 +374,7 @@ export function createApp(deps: Deps): Hono<Env> {
       c,
       z.object({ endpoint: z.string().url().max(1000), keys: z.object({ p256dh: z.string().max(200), auth: z.string().max(100) }) }),
     );
+    if (!isPushService(body.endpoint)) throw new DomainError('invalid', "Ce service de notifications n'est pas reconnu.");
     push.subscribe(player(c).id, body, c.req.header('user-agent') ?? null, game.now());
     return c.json({ prefs: push.prefs(player(c).id) });
   });
@@ -349,7 +399,7 @@ export function createApp(deps: Deps): Hono<Env> {
     if (!push) throw new DomainError('invalid', 'Les notifications ne sont pas disponibles.');
     const delivered = await push.sendTo(player(c).id, {
       title: 'Notifications activées',
-      body: 'Tu seras prévenu quand on te compte un gros mot.',
+      body: 'Une notification arrivera ici quand on te comptera un gros mot.',
       tag: 'test',
       url: '/#/',
       badge: 0,
@@ -369,7 +419,7 @@ export function createApp(deps: Deps): Hono<Env> {
   app.use('/api/stats', requireAuth);
 
   app.get('/api/snapshot', (c) => c.json(game.snapshot()));
-  app.get('/api/stream', (c) => stream(c, c.get('session')?.id ?? null));
+  app.get('/api/stream', (c) => stream(c, { sessionId: c.get('session')?.id ?? null, linkId: null }));
 
   const ReportBody = z.object({
     id: z.string().max(100),
@@ -568,6 +618,7 @@ export function createApp(deps: Deps): Hono<Env> {
 
   app.delete('/api/admin/spectator-links/:id', (c) => {
     deps.db.prepare('UPDATE spectator_links SET revoked_at = ? WHERE id = ?').run(game.now(), c.req.param('id'));
+    hub.disconnectLink(c.req.param('id'));
     return c.json({ ok: true });
   });
 
@@ -600,7 +651,11 @@ export function createApp(deps: Deps): Hono<Env> {
     const s = game.store;
     const tz = s.settings.timeZone;
     const name = (id: string) => s.players.get(id)?.name ?? id;
-    const cell = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
+    // Un texte qui commence par = + - @ serait exécuté comme une formule par Excel ou Numbers.
+    const cell = (v: string | number) => {
+      const text = typeof v === 'string' && /^[=+\-@\t\r]/.test(v) ? `'${v}` : String(v);
+      return `"${text.replace(/"/g, '""')}"`;
+    };
     const lines = [['date', 'heure', 'cible', 'points', 'statut', 'témoins', 'mot', 'note'].map(cell).join(';')];
     const episodes = history(s, { limit: 200 });
     let page = episodes;
