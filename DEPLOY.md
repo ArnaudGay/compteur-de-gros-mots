@@ -58,11 +58,16 @@ Vérifie que la RAM est revenue : `free -h`.
 
 Pas de Caddy dans ce cas : Dokploy s'occupe du domaine et du HTTPS.
 
-1. Dans Dokploy, crée une **Application** reliée au dépôt GitHub `ArnaudGay/compteur-de-gros-mots`, type de construction **Dockerfile**.
+1. Dans Dokploy, crée une **Application** (pas un service « Compose ») reliée au dépôt GitHub `ArnaudGay/compteur-de-gros-mots`, type de construction **Dockerfile**.
 2. Variables d'environnement : `PUBLIC_ORIGIN=https://grosmots.arnaudgay.fr` et `TRUST_PROXY=1`.
-3. Ajoute un **volume** de type « Volume Mount » (volume Docker nommé) monté sur `/data` : c'est là que vivent la base et les sauvegardes. Si tu préfères un « Bind Mount » vers un dossier du VPS, donne-le d'abord à l'utilisateur de l'app (`sudo chown -R 1000:1000 /chemin/du/dossier`), sinon l'app ne peut pas y écrire et s'arrête au démarrage.
+3. **Stockage des données** : indispensable, sinon tout est effacé à chaque mise à jour. Ce n'est **pas** une base de données à créer dans Dokploy (rien à faire dans « Databases ») : la base est un simple fichier SQLite que l'app écrit elle-même dans `/data`, avec ses sauvegardes. Le volume ne se règle pas à la création de l'application, mais ensuite : ouvre l'application, onglet **Advanced**, section **Volumes**, bouton **Add Volume**, type **Volume Mount** :
+   - **Volume Name** : `gros-mots-data`
+   - **Mount Path** : `/data`
+
+   Évite « Bind Mount » : avec un chemin relatif (`../files/…`), il ne marche pas avec Dokploy ; avec un chemin absolu, il faut d'abord donner le dossier à l'utilisateur de l'app (`sudo chown -R 1000:1000 /chemin/du/dossier`), sinon l'app s'arrête au démarrage.
 4. Domaine : `grosmots.arnaudgay.fr`, port du conteneur `8787`, HTTPS avec Let's Encrypt.
-5. Déploie, puis passe à l'étape 5 (le lien d'invitation est dans les journaux de l'application).
+5. Déploie, puis passe directement à l'étape 6 (l'étape 5 ne concerne que l'option A).
+6. Vérifie que le volume marche : redéploie une deuxième fois. Les journaux ne doivent **pas** afficher de nouveau « Joueurs créés » ; s'ils l'affichent, les données repartent de zéro à chaque déploiement : revois l'étape 3.
 
 ## 3. DNS
 
@@ -119,6 +124,12 @@ Si le lien a expiré ou s'est perdu, crée-en un autre à tout moment :
 
 ```sh
 docker compose exec app node dist/server/cli.js invite arnaud
+```
+
+Avec Dokploy (option B), le lien s'affiche dans l'onglet **Logs** de l'application. Pour en créer un autre, sur le VPS (remplace `NOM` par le nom technique de l'application dans Dokploy ; `docker ps` l'affiche aussi) :
+
+```sh
+docker exec $(docker ps -q --filter name=NOM | head -n 1) node dist/server/cli.js invite arnaud
 ```
 
 Sur l'iPhone :
