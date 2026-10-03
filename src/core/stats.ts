@@ -6,16 +6,21 @@ import { DAY, dayKey, dayRange, daysBetween, startOfDay, zonedParts } from './ti
 import type { Millis, PlayerStats, StatsRange, StatsView } from './types';
 import { episodeWord } from './views';
 
-export function buildStats(store: Store, now: Millis, range: StatsRange): StatsView {
+/** Statistiques sur une période ; `seasonId` permet de revoir une saison terminée. */
+export function buildStats(store: Store, nowArg: Millis, range: StatsRange, seasonId?: string | null): StatsView {
   const tz = store.settings.timeZone;
   const launched = store.settings.challengeStartedAt;
-  let firstEpisode = now;
+  let firstEpisode = nowArg;
   for (const e of store.episodes.values()) if (e.startedAt < firstEpisode) firstEpisode = e.startedAt;
   const allFrom = launched ?? firstEpisode;
 
+  const pastSeason = range === 'season' && seasonId ? store.seasons.get(seasonId) : undefined;
+  // Pour une saison terminée, la période s'arrête à sa fin.
+  const now = pastSeason?.endsAt ? Math.min(nowArg, pastSeason.endsAt - 1) : nowArg;
+
   let from: Millis;
   if (range === '30d') from = Math.max(allFrom, startOfDay(now - 29 * DAY, tz));
-  else if (range === 'season') from = Math.max(allFrom, currentSeason(store, now)?.startsAt ?? allFrom);
+  else if (range === 'season') from = Math.max(allFrom, (pastSeason ?? currentSeason(store, now))?.startsAt ?? allFrom);
   else from = allFrom;
   from = Math.min(from, now);
 

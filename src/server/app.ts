@@ -450,7 +450,7 @@ export function createApp(deps: Deps): Hono<Env> {
   app.get('/api/stats', (c) => {
     const range = c.req.query('range');
     const valid = range === 'season' || range === '30d' || range === 'all' ? range : 'season';
-    return c.json(buildStats(game.store, game.now(), valid));
+    return c.json(buildStats(game.store, game.now(), valid, c.req.query('season') ?? null));
   });
 
   // --- Administration ------------------------------------------------------------------------

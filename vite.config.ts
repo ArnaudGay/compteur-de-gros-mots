@@ -23,6 +23,8 @@ function serviceWorker(): Plugin {
   return {
     name: 'gros-mots-service-worker',
     apply: 'build',
+    // Après les autres extensions, pour que la feuille de style soit déjà dans la liste.
+    enforce: 'post',
     async generateBundle(_options, bundle) {
       const generated = Object.keys(bundle).map((file) => '/' + file);
       const publicFiles = listFiles('public').filter((file) => file !== '/robots.txt');
@@ -65,7 +67,11 @@ function inlineEverything(): Plugin {
           delete bundle[file];
         }
       }
-      htmlAsset.source = html;
+      // Format attendu par la page publiée : pas de <html>/<head>/<body>, juste le contenu.
+      const title = /<title>[\s\S]*?<\/title>/.exec(html)?.[0] ?? '';
+      const styles = html.match(/<style>[\s\S]*?<\/style>/g) ?? [];
+      const scripts = html.match(/<script type="module">[\s\S]*?<\/script>/g) ?? [];
+      htmlAsset.source = [title, ...styles, '<div id="app"></div>', ...scripts].join('\n');
     },
   };
 }
