@@ -140,11 +140,29 @@ body {
 }
 
 :root {
+  /* Haut de l'écran laissé libre : l'encoche, et sur iOS 26 la zone floue de l'app installée (ci-dessous). */
+  --inset-top: env(safe-area-inset-top, 0px);
   /* L'app occupe tout l'écran ; seules les zones de l'encoche et de la barre d'accueil restent libres. */
-  padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
+  padding: var(--inset-top) 0 env(safe-area-inset-bottom, 0px);
   background: var(--paper);
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+}
+
+/*
+ * iOS 26 et suivants : dans l'app installée, le système dessine un flou (« Liquid Glass ») sur
+ * environ 40 points sous la barre d'état, et aucun réglage ne le coupe. Le contenu passe donc
+ * sous cette zone, qui ne montre plus que le fond. Seulement sur iPhone, dans l'app installée,
+ * en portrait, et quand la page passe sous la barre d'état (marge d'encoche non nulle, comme
+ * avec iOS 26) : rien ne change dans le navigateur ni sur les iPhone plus anciens, où la barre
+ * d'état est opaque et la marge d'encoche nulle.
+ */
+@supports (-webkit-touch-callout: none) {
+  @media (display-mode: standalone) and (orientation: portrait) {
+    :root {
+      --inset-top: calc(env(safe-area-inset-top, 0px) + min(2.5rem, env(safe-area-inset-top, 0px) * 100));
+    }
+  }
 }
 
 body {

@@ -117,7 +117,7 @@
   }
   .demo-flag {
     position: fixed;
-    top: calc(env(safe-area-inset-top, 0px) + 6px);
+    top: calc(var(--inset-top) + 6px);
     left: 50%;
     transform: translateX(-50%);
     z-index: 60;

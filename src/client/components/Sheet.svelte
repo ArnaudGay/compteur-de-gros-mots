@@ -41,7 +41,8 @@
     right: 0;
     bottom: 0;
     z-index: 41;
-    max-height: 88%;
+    /* Jamais sous la barre d'état ni sous la zone floue d'iOS 26. */
+    max-height: min(88%, calc(100% - var(--inset-top) - 8px));
     display: flex;
     flex-direction: column;
     background: var(--paper);
