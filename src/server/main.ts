@@ -11,6 +11,7 @@ import { Game } from './game';
 import { Passkeys } from './passkeys';
 import { Push } from './push';
 import { Hub } from './realtime';
+import { APP_VERSION } from './version';
 
 const config = loadConfig();
 const db = openDatabase(config.dbPath);
@@ -33,7 +34,7 @@ for (const player of game.store.activePlayers()) {
 
 const app = createApp({ config, db, game, hub, auth, passkeys, push, backups, serveClient: true });
 const server = serve({ fetch: app.fetch, port: config.port, hostname: '0.0.0.0' }, (info) => {
-  console.log(`[démarrage] Gros mots ${__APP_VERSION__} écoute sur le port ${info.port} (${config.publicOrigin})`);
+  console.log(`[démarrage] Gros mots ${APP_VERSION} écoute sur le port ${info.port} (${config.publicOrigin})`);
 });
 
 const timers = [

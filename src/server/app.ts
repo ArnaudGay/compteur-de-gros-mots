@@ -22,6 +22,7 @@ import type { Game } from './game';
 import type { Passkeys } from './passkeys';
 import type { Push } from './push';
 import type { Hub } from './realtime';
+import { APP_VERSION } from './version';
 
 export interface Deps {
   config: Config;
@@ -167,7 +168,7 @@ export function createApp(deps: Deps): Hono<Env> {
 
   // --- Public ------------------------------------------------------------------------
 
-  app.get('/api/health', (c) => c.json({ ok: true, version: __APP_VERSION__, clients: hub.size }));
+  app.get('/api/health', (c) => c.json({ ok: true, version: APP_VERSION, clients: hub.size }));
 
   app.get('/api/auth/players', (c) =>
     c.json(
