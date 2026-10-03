@@ -28,18 +28,20 @@
 </script>
 
 <div class="counter">
-  <header class="top">
-    <div class="brand">
-      <Logo size={20} />
-      <span class="word">Gros mots</span>
-    </div>
-    <span class="link {app.link}" role="status">
-      <span class="pulse" aria-hidden="true"></span>{statusLabel[app.link]}{#if waiting}{' · '}{waiting} en attente{/if}
-    </span>
-  </header>
-  {#if view?.phase === 'live' && season}
-    <p class="sub">{season.name} · jour {dayNumber} · {total} au total</p>
-  {/if}
+  <div class="head">
+    <header class="top">
+      <div class="brand">
+        <Logo size={20} />
+        <span class="word">Gros mots</span>
+      </div>
+      <span class="link {app.link}" role="status">
+        <span class="pulse" aria-hidden="true"></span>{statusLabel[app.link]}{#if waiting}{' · '}{waiting} en attente{/if}
+      </span>
+    </header>
+    {#if view?.phase === 'live' && season}
+      <p class="sub">{season.name} · jour {dayNumber} · {total} au total</p>
+    {/if}
+  </div>
 
   {#if app.pendingVotes.length}
     {@const first = app.pendingVotes[0]}
@@ -100,6 +102,12 @@
     flex-direction: column;
     padding: 6px 10px 0;
     gap: 6px;
+  }
+  /* Le titre (et la ligne de saison) respire un peu avant le tableau. */
+  .head {
+    display: grid;
+    gap: 6px;
+    padding-bottom: 10px;
   }
   .top {
     display: flex;
