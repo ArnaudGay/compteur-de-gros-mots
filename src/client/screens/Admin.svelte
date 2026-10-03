@@ -252,8 +252,8 @@
         <input id="s-price" class="input" inputmode="decimal" bind:value={form.price} />
       </div>
       <div class="field">
-        <label for="s-forfeit">Gage du dernier</label>
-        <input id="s-forfeit" class="input" maxlength="140" placeholder="Ex. le dernier paie le resto" bind:value={form.forfeit} />
+        <label for="s-forfeit">Gage de la lanterne rouge</label>
+        <input id="s-forfeit" class="input" maxlength="140" placeholder="Ex. la lanterne rouge paie le resto" bind:value={form.forfeit} />
       </div>
       <div class="grid2">
         <div class="field">

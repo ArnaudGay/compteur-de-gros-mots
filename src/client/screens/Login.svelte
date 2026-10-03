@@ -69,11 +69,11 @@
         <button class="player" disabled={!p.hasPin} onclick={() => (chosen = p)}>
           <span class="dot" style:background={`var(--hue-${p.color})`}></span>
           <span class="name">{p.name}</span>
-          {#if !p.hasPin}<span class="hint">pas encore inscrit</span>{/if}
+          {#if !p.hasPin}<span class="hint">pas encore de code</span>{/if}
         </button>
       {/each}
     </div>
-    <p class="note">Pas encore inscrit ? Demande ton lien d'invitation à l'admin.</p>
+    <p class="note">Pas encore de code ? Demande ton lien d'invitation à l'admin.</p>
   {:else}
     <div class="pin">
       <button class="change" onclick={() => ((chosen = null), (error = null))}>

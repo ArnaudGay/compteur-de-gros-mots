@@ -88,7 +88,7 @@ export interface Settings {
   voteDurationMs: number;
   /** Prix d'un point pour la cagnotte (0 = cagnotte désactivée). */
   pricePerPointCents: number;
-  /** Gage du dernier de la saison. */
+  /** Gage de la lanterne rouge de la saison. */
   forfeit: string;
   /** Règles du défi, en texte libre. */
   rules: string;

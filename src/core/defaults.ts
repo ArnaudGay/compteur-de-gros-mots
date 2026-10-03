@@ -30,7 +30,7 @@ Contester
 À fixer entre vous
 - « Putain, putain, putain » : 1 point ou 3 ?
 - L'anglais, « mince » et « zut », les messages écrits, les paroles de chansons : ça compte ?
-- Le prix d'un gros mot pour la cagnotte, et le gage du dernier.`;
+- Le prix d'un gros mot pour la cagnotte, et le gage de la lanterne rouge.`;
 
 export const DEFAULT_SETTINGS: Settings = {
   mergeWindowMs: 20_000,

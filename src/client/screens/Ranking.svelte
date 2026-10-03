@@ -31,12 +31,11 @@
       .map((p) => ({ player: p, points: view.totals[p.id]?.[effective] ?? 0, last: view.last[p.id] }))
       .sort((a, b) => a.points - b.points || a.player.position - b.player.position);
     const best = sorted[0]?.points ?? 0;
-    return sorted.map((row, i) => ({
+    return sorted.map((row) => ({
       ...row,
       rank: sorted.findIndex((r) => r.points === row.points) + 1,
       tied: sorted.filter((r) => r.points === row.points).length > 1,
       gap: row.points - best,
-      first: i === 0,
     }));
   });
   let worst = $derived(rows.length > 1 && rows[rows.length - 1]!.points > rows[0]!.points ? rows[rows.length - 1]!.points : null);
@@ -79,11 +78,11 @@
         <span class="grow">
           <span class="line">
             <PlayerName player={row.player} me={row.player.id === app.meId} />
-            {#if row.first && worst !== null}<span class="tag best">le plus sage</span>{/if}
+            {#if row.rank === 1 && worst !== null}<span class="tag best">en tête</span>{/if}
             {#if worst !== null && row.points === worst}<span class="tag worst">lanterne rouge</span>{/if}
           </span>
           <span class="detail">
-            {#if row.gap > 0}+{row.gap} sur le premier{' · '}{/if}{#if row.last}dernier {ago(row.last.at, app.now)}{#if days !== null && days > 0}{' · '}{plural(days, 'jour')} sans{/if}{:else}aucun gros mot{/if}{#if price > 0}{' · '}doit {money(row.points * price)}{/if}
+            {#if row.gap > 0}{plural(row.gap, 'point')} de retard{' · '}{/if}{#if row.last}dernier {ago(row.last.at, app.now)}{#if days !== null && days > 0}{' · '}{plural(days, 'jour')} sans{/if}{:else}aucun gros mot{/if}{#if price > 0}{' · '}doit {money(row.points * price)}{/if}
           </span>
         </span>
         <span class="points display" aria-label="{plural(row.points, 'point')} {periodLabel[effective]}">{row.points}</span>
@@ -103,7 +102,7 @@
       {/if}
       {#if view?.settings.forfeit}
         <div>
-          <span class="eyebrow">Gage du dernier</span>
+          <span class="eyebrow">Gage de la lanterne rouge</span>
           <p>{view.settings.forfeit}</p>
         </div>
       {/if}

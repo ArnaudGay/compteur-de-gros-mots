@@ -126,7 +126,7 @@ Sur l'iPhone :
 1. Ouvre le lien **dans Safari** (si tu l'ouvres depuis WhatsApp ou Messenger, choisis « Ouvrir dans Safari »).
 2. Choisis ton code à 6 chiffres (deux fois).
 3. Installe l'app : bouton **Partager** → **Sur l'écran d'accueil** → **Ajouter**.
-4. Ouvre **Gros mots** depuis l'écran d'accueil : tu y es déjà connecté.
+4. Ouvre **Gros mots** depuis l'écran d'accueil : pas besoin de te reconnecter.
 5. **Plus → Mon compte** : active **Face ID** et les **notifications**.
 
 ## 7. Inviter les autres

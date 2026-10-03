@@ -185,7 +185,7 @@ Chaque correction se fait en un tap et reste tracée dans l'historique.
 | Écran | Contenu |
 |---|---|
 | **Compteur** (principal) | 4 grandes cases en 2 × 2, un tap = +1. **Les cases ne bougent jamais**, même quand le classement change, pour qu'on ne tape pas la mauvaise personne par réflexe. Les points du jour en bâtons de comptage. Bouton « ⋯ » par case : +2, +3, ajout « pour plus tôt » (heure + note), mot prononcé |
-| **Classement** | Du plus sage au plus grossier, par période (aujourd'hui, semaine, mois, saison, total), écart avec le premier, jours depuis le dernier gros mot, montant de la cagnotte |
+| **Classement** | Du plus sage au plus grossier, par période (aujourd'hui, semaine, mois, saison, total), écart avec la tête du classement, jours depuis le dernier gros mot, montant de la cagnotte |
 | **Historique** | Tous les épisodes, avec les témoins, les mots, les annulations, les corrections et les contestations en cours. Actions : annuler son signalement, contester un point reçu, voter, « C'est un autre » / « C'est le même » |
 | **Stats** | Courbes par jour, séries sans gros mot (en cours et record), moments critiques (jour × heure), top des mots, « plus grosse balance » |
 | **Règles** | Les règles du défi, modifiables par l'admin |
@@ -240,7 +240,7 @@ Ce qu'on fait :
 | Sujet | Ce qu'on fait |
 |---|---|
 | Installation | Depuis Safari : Partager → « Sur l'écran d'accueil ». Un guide illustré s'affiche tant que l'app n'est pas installée |
-| Connexion sans ressaisie | On ouvre son lien d'invitation dans Safari, on choisit son code, puis on installe l'app : iOS copie les cookies de Safari dans l'app installée, donc on y est déjà connecté. La session est gardée dans un cookie qui ne change jamais de valeur, pour rester valable des deux côtés |
+| Connexion sans ressaisie | On ouvre son lien d'invitation dans Safari, on choisit son code, puis on installe l'app : iOS copie les cookies de Safari dans l'app installée, donc la session y est déjà ouverte. La session est gardée dans un cookie qui ne change jamais de valeur, pour rester valable des deux côtés |
 | Face ID | Après la première connexion, « Activer Face ID » crée une passkey : les connexions suivantes se font d'un regard. Le code reste toujours possible |
 | Notifications | « Alexis t'a compté un gros mot », « vote demandé », « résultat du vote », « fin de saison ». iOS ne les autorise que dans l'app installée (iOS 16.4 et plus), activation par un bouton dans les réglages |
 | Pastille sur l'icône | Nombre de votes en attente (mêmes conditions que les notifications) |
@@ -291,12 +291,12 @@ Un point reçu ne peut pas être retiré par la personne qui l'a reçu : elle pe
 **Saisons**
 
 - L'admin lance le défi officiellement (ce qui écarte les points de la phase de test), puis peut clore une saison et en ouvrir une nouvelle (par mois, par manche…). Rien n'est perdu : chaque saison a son classement, et le total reste consultable.
-- En fin de saison : le plus sage, le plus grossier, le gage, le montant de la cagnotte.
+- En fin de saison : qui finit en tête, la lanterne rouge, le gage, le montant de la cagnotte.
 
 **Cagnotte et gage**
 
 - Prix du point réglable (désactivé par défaut, par exemple 0,50 €) : chaque joueur voit ce qu'il doit, et le total de la cagnotte.
-- Gage libre pour le dernier de la saison (« le dernier paie le resto »).
+- Gage libre pour la lanterne rouge de la saison (« la lanterne rouge paie le resto »).
 
 **Statistiques**
 

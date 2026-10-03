@@ -49,7 +49,7 @@
       <div class="row"><dt class="grow">Délai pour contester</dt><dd>{hours(settings.contestWindowMs)}</dd></div>
       <div class="row"><dt class="grow">Durée du vote</dt><dd>{hours(settings.voteDurationMs)}</dd></div>
       <div class="row"><dt class="grow">Cagnotte</dt><dd>{settings.pricePerPointCents > 0 ? `${money(settings.pricePerPointCents)} par gros mot` : 'désactivée'}</dd></div>
-      {#if settings.forfeit}<div class="row"><dt class="grow">Gage du dernier</dt><dd>{settings.forfeit}</dd></div>{/if}
+      {#if settings.forfeit}<div class="row"><dt class="grow">Gage de la lanterne rouge</dt><dd>{settings.forfeit}</dd></div>{/if}
     </dl>
     {#if app.me?.player.isAdmin}<p class="note muted">Tu peux modifier ces règles dans Administration.</p>{/if}
   {/if}

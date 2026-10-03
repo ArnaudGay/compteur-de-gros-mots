@@ -91,7 +91,7 @@ export class Auth {
     const ok = typeof pinHash === 'string' && /^\d{6}$/.test(pin) && (await verify(pinHash, pin).catch(() => false));
     if (!ok) {
       const remaining = this.recordFailure(playerId, ip, now);
-      if (!pinHash) throw new DomainError('invalid', "Ce joueur n'a pas encore choisi son code : demande-lui d'ouvrir son lien d'invitation.");
+      if (!pinHash) throw new DomainError('invalid', "Pas encore de code pour ce compte : il faut d'abord ouvrir le lien d'invitation.");
       throw new DomainError(
         remaining > 0 ? 'invalid' : 'locked',
         remaining > 0 ? `Code incorrect. Encore ${remaining} essai${remaining > 1 ? 's' : ''}.` : "Trop d'essais : réessaie dans 15 minutes.",

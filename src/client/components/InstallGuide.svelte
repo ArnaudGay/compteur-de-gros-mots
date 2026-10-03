@@ -24,7 +24,7 @@
       </li>
       <li>
         <span class="step">3</span>
-        <span>Ouvre <strong>Gros mots</strong> depuis ton écran d'accueil : tu y es déjà connecté. C'est là que marchent les notifications et Face ID.</span>
+        <span>Ouvre <strong>Gros mots</strong> depuis ton écran d'accueil : pas besoin de te reconnecter. C'est là que marchent les notifications et Face ID.</span>
       </li>
     </ol>
   </div>

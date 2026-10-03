@@ -27,7 +27,7 @@ function random(seed: number) {
 
 function seedStore(now: number): Store {
   const players: Player[] = DEFAULT_PLAYERS.map((p, position) => ({ ...p, position, archivedAt: null, createdAt: now - 20 * DAY }));
-  const store = new Store({ players, episodes: [], reports: [], contests: [], seasons: [], settings: { ...DEFAULT_SETTINGS, pricePerPointCents: 50, forfeit: 'Le dernier paie le resto.' } });
+  const store = new Store({ players, episodes: [], reports: [], contests: [], seasons: [], settings: { ...DEFAULT_SETTINGS, pricePerPointCents: 50, forfeit: 'La lanterne rouge paie le resto.' } });
   const rand = random(42);
   const pick = <T,>(items: readonly T[]): T => items[Math.floor(rand() * items.length)] as T;
   const ids = players.map((p) => p.id);
