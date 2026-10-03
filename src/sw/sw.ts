@@ -32,20 +32,23 @@ sw.addEventListener('fetch', (event) => {
   if (request.mode === 'navigate') {
     // Page : réseau d'abord (version à jour). Mais hors ligne, réseau trop lent, ou serveur en
     // pleine mise à jour (erreur 502) : la copie locale, pour que l'app s'ouvre toujours.
+    // On ne garde en cache que la page réellement affichée : ses fichiers sont alors chargés
+    // (et gardés) eux aussi. Une page arrivée trop tard n'a pas ses fichiers en cache.
+    const keep = (response: Response) => {
+      if (response.ok) {
+        const copy = response.clone();
+        void caches.open(CACHE).then((cache) => cache.put('/', copy));
+      }
+      return response;
+    };
     event.respondWith(
       (async () => {
-        const network = fetch(request).then((response) => {
-          if (response.ok) {
-            const copy = response.clone();
-            void caches.open(CACHE).then((cache) => cache.put('/', copy));
-          }
-          return response;
-        });
+        const network = fetch(request);
         const cached = await caches.match('/');
-        if (!cached) return network;
+        if (!cached) return keep(await network);
         try {
           const response = await Promise.race([network, new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000))]);
-          return response && response.status < 500 ? response : cached;
+          return response && response.status < 500 ? keep(response) : cached;
         } catch {
           return cached;
         }

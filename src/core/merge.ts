@@ -15,6 +15,8 @@ export interface EpisodeLike {
   kind: EpisodeKind;
   startedAt: Millis;
   voided: boolean;
+  /** En cours de VAR ou déjà jugé : plus aucun tap ne s'y rattache. */
+  frozen?: boolean;
   reports: readonly ReportLike[];
 }
 
@@ -98,7 +100,9 @@ export function segmentOf(at: Millis, boundaries: readonly Millis[]): number {
  *   on s'y rattache (de préférence à un épisode où ce témoin a déjà signalé, puis au plus proche).
  * - Sinon, nouvel épisode ; si un épisode d'un autre témoin date de moins de
  *   `suggestWindowMs`, on le propose pour « C'est le même ? ».
- * Seuls comptent les épisodes du même côté des frontières (`boundariesOf`).
+ * Seuls comptent les épisodes du même côté des frontières (`boundariesOf`), et jamais un
+ * point en cours de VAR ou déjà jugé : un nouveau tap y serait coincé (ni séparable, ni annulé
+ * pour de bon si le vote annule le point).
  */
 export function decideMerge(
   candidates: readonly EpisodeLike[],
@@ -112,6 +116,7 @@ export function decideMerge(
       e.targetId === input.targetId &&
       e.kind === 'live' &&
       !e.voided &&
+      !e.frozen &&
       pointsOf(e.reports) > 0 &&
       segmentOf(e.startedAt, boundaries) === segment,
   );

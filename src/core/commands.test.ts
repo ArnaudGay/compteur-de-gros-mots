@@ -487,6 +487,18 @@ describe('cas limites relevés à la relecture', () => {
     expect(snap.totals.gatho).toMatchObject({ season: 1, all: 2 });
   });
 
+  it('un tap arrivé pendant une VAR ne rejoint pas le point contesté', () => {
+    const store = makeStore();
+    const first = tap(store, 'alexis', 'arnaud', T0);
+    const contest = run(store, () => openContest(store, ctx('arnaud', T0 + 8 * SECOND), { episodeId: first.episodeId }));
+    const later = tap(store, 'gatho', 'arnaud', T0 + 12 * SECOND);
+    expect(later).toMatchObject({ outcome: 'new', suggestion: null });
+    expect(total(store, 'arnaud')).toBe(2);
+    run(store, () => vote(store, ctx('gatho', T0 + MINUTE), { contestId: contest.id, choice: 'invalid' }));
+    run(store, () => vote(store, ctx('alexandre', T0 + MINUTE), { contestId: contest.id, choice: 'invalid' }));
+    expect(total(store, 'arnaud')).toBe(1);
+  });
+
   it('un signalement retiré ne fixe plus le début de l’épisode', () => {
     const store = makeStore();
     const mistake = tap(store, 'alexis', 'arnaud', T0);

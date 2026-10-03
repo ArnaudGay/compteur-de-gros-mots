@@ -46,6 +46,7 @@ export function toEpisodeLike(store: Store, e: Episode): EpisodeLike {
     kind: e.kind,
     startedAt: e.startedAt,
     voided: e.voidedAt !== null,
+    frozen: store.contestsOf(e.id).some((c) => c.status !== 'withdrawn'),
     reports: store.reportsOf(e.id).map(toReportLike),
   };
 }

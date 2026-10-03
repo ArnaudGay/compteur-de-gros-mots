@@ -234,6 +234,27 @@ describe('annuler un tap', () => {
   });
 });
 
+describe('requête sans réponse', () => {
+  it('un tap bloqué en route ne retient pas les autres annulations', async () => {
+    const t = await start();
+    t.app.tap('b');
+    const confirmed = t.app.pending[0]!;
+    await settle();
+    t.stream().snapshot(snap(101, [episodeWith(confirmed.id, confirmed.occurredAt)]));
+    const stuck = deferred<ReturnType<typeof accepted>>();
+    t.server.report = () => stuck.promise;
+    t.app.tap('a');
+    const hanging = t.app.pending.find((p) => p.targetId === 'a')!;
+    t.app.cancelTap(hanging.id);
+    t.app.cancelTap(confirmed.id);
+    await settle();
+    expect(t.calls.cancel).toEqual([confirmed.id]);
+    stuck.resolve(accepted(hanging, 102));
+    await settle();
+    expect(t.calls.cancel).toEqual([confirmed.id, hanging.id]);
+  });
+});
+
 describe('envoyer un tap', () => {
   it('double tap involontaire : un seul point ; le menu +N n’est jamais bloqué', async () => {
     const t = await start();

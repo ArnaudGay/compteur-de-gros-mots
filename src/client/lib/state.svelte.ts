@@ -66,7 +66,15 @@ const TILE_LOCK_MS = 300;
 const like = (r: ReportView): ReportLike => ({ reporterId: r.reporterId, count: r.count, cancelled: r.cancelledAt !== null });
 
 function toLike(e: EpisodeView): EpisodeLike {
-  return { id: e.id, targetId: e.targetId, kind: e.kind, startedAt: e.startedAt, voided: e.voided, reports: e.reports.map(like) };
+  return {
+    id: e.id,
+    targetId: e.targetId,
+    kind: e.kind,
+    startedAt: e.startedAt,
+    voided: e.voided,
+    frozen: !!e.contest && e.contest.status !== 'withdrawn',
+    reports: e.reports.map(like),
+  };
 }
 
 function isAcknowledged(tap: PendingTap, snap: Snapshot): boolean {
@@ -500,6 +508,8 @@ class AppState {
       } finally {
         this.persistQueue();
         this.sending.delete(tap.id);
+        // Une annulation attendait la réponse de ce tap : elle peut partir.
+        if (this.cancels.some((c) => c.reportId === tap.id && c.state === 'queued')) void this.flush();
       }
     })();
     this.sending.set(tap.id, job);
@@ -549,11 +559,11 @@ class AppState {
   /** Renvoie faux si le réseau manque encore. */
   private async sendCancels(): Promise<boolean> {
     for (;;) {
-      const job = this.cancels.find((c) => c.state === 'queued');
+      // Un tap encore en route sera annulé dès sa réponse (voir `send`) : on ne l'attend pas ici,
+      // pour que les autres annulations partent sans délai.
+      const job = this.cancels.find((c) => c.state === 'queued' && !this.sending.has(c.reportId));
       if (!job) return true;
       this.patchCancel(job.reportId, { state: 'sending' });
-      // Le tap à annuler est peut-être encore en route : on attend sa réponse.
-      await this.sending.get(job.reportId);
       try {
         const result = await this.transport.cancel(job.reportId);
         this.patchCancel(job.reportId, { state: 'acked', ackVersion: result.version });

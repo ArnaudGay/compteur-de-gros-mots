@@ -4,20 +4,32 @@ import { startAuthentication, startRegistration } from '@simplewebauthn/browser'
 import type { Snapshot } from '../../core/types';
 import { ApiError, type StreamHandlers, type Transport } from './api';
 
+/**
+ * Au-delà, une requête est considérée comme perdue : sur iPhone, une requête partie juste
+ * avant la mise en veille de l'app peut ne jamais répondre, et bloquerait la file d'attente.
+ */
+const TIMEOUT_MS = 15_000;
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   let res: Response;
+  let data: unknown = null;
   try {
     res = await fetch(path, {
       method,
       credentials: 'same-origin',
       headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal,
     });
+    if ((res.headers.get('content-type') ?? '').includes('application/json')) data = await res.json();
   } catch {
+    // Pas de réseau, réponse coupée ou trop lente : l'action pourra être refaite.
     throw new ApiError('network', 'Pas de réseau. Réessaie quand la connexion revient.');
+  } finally {
+    clearTimeout(timer);
   }
-  const type = res.headers.get('content-type') ?? '';
-  const data: unknown = type.includes('application/json') ? await res.json().catch(() => null) : null;
   if (!res.ok) {
     const error = (data as { error?: { code?: string; message?: string } } | null)?.error;
     if (res.status >= 500 && !error) throw new ApiError('network', 'Le serveur ne répond pas. Réessaie dans un instant.', res.status);
