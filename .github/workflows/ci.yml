@@ -1,0 +1,32 @@
+name: Vérifications
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verifier:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Types (interface, serveur, service worker)
+        run: npm run check
+      - name: Tests unitaires et d'intégration
+        run: npm test
+      - name: Compilation
+        run: npm run build && npm run build:demo
+      - name: Navigateur pour les tests de bout en bout
+        run: npx playwright install --with-deps chromium
+      - name: Tests de bout en bout
+        run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: rapport-playwright
+          path: test-results/
+          retention-days: 7
