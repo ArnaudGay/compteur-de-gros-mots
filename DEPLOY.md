@@ -164,7 +164,7 @@ ssh ton-vps "cd gros-mots && docker compose cp app:/data/backups -" | tar -x -C 
 ou, sur le VPS, une tâche quotidienne (`crontab -e`) vers un stockage configuré avec [rclone](https://rclone.org/) (Backblaze B2, Cloudflare R2, Google Drive…) :
 
 ```
-30 5 * * * cd /root/gros-mots && docker compose cp app:/data/backups /root/gros-mots-backups && rclone copy /root/gros-mots-backups distant:gros-mots
+30 5 * * * mkdir -p /root/gros-mots-backups && cd /root/gros-mots && docker compose cp app:/data/backups/. /root/gros-mots-backups/ && rclone copy /root/gros-mots-backups distant:gros-mots
 ```
 
 - **Export lisible** : **Administration → Export CSV / JSON**.
