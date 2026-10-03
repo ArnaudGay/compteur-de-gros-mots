@@ -28,7 +28,7 @@
             {/each}
           </div>
         {:else}
-          <button type="button" class="close" aria-label="Fermer" onclick={onDismiss}><Icon name="close" size={18} /></button>
+          <button type="button" class="close" aria-label="Masquer le message" onclick={onDismiss}><Icon name="close" size={18} /></button>
         {/if}
         <span class="timer" style:animation-duration="{toast.duration}ms"></span>
       </div>
@@ -42,7 +42,7 @@
     left: 10px;
     right: 10px;
     bottom: 10px;
-    z-index: 20;
+    z-index: 50;
     pointer-events: none;
   }
   .toast {

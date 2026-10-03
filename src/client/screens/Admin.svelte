@@ -325,7 +325,7 @@
   <h2 class="eyebrow section-title">Données et sauvegardes</h2>
   <div class="list">
     <div class="row column">
-      {#if app.transport.downloadUrl('csv')}
+      {#if !__DEMO__ && app.transport.downloadUrl('csv')}
         <div class="pair">
           <a class="btn small" href={app.transport.downloadUrl('csv')} download><Icon name="download" size={16} /> Export CSV</a>
           <a class="btn small" href={app.transport.downloadUrl('json')} download><Icon name="download" size={16} /> Export JSON</a>
@@ -339,7 +339,7 @@
         <div class="backup">
           <span class="grow mono">{b.name}</span>
           <span class="hint">{Math.max(1, Math.round(b.size / 1024))} Ko</span>
-          {#if url}<a class="btn small" href={url} download aria-label="Télécharger {b.name}"><Icon name="download" size={16} /></a>{/if}
+          {#if !__DEMO__ && url}<a class="btn small" href={url} download aria-label="Télécharger {b.name}"><Icon name="download" size={16} /></a>{/if}
         </div>
       {/each}
       <button class="btn" disabled={busy} onclick={() => run(() => app.transport.backupNow(), 'Sauvegarde faite')}>Sauvegarder maintenant</button>

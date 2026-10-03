@@ -57,7 +57,9 @@ function inlineEverything(): Plugin {
       let html = String(htmlAsset.source);
       for (const [file, output] of Object.entries(bundle)) {
         if (output.type === 'chunk' && file.endsWith('.js')) {
-          const code = output.code.replace(/<\/script/gi, '<\\/script');
+          // Les exports de l'admin ne sont jamais affichés dans la démo : on retire l'attribut
+          // de téléchargement, que la page publiée ne peut de toute façon pas honorer.
+          const code = output.code.replace(/<\/script/gi, '<\\/script').replace(/ download=""/g, '');
           const tag = new RegExp(`<script[^>]*src="/${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*></script>`);
           html = html.replace(tag, () => `<script type="module">${code}</script>`);
           delete bundle[file];

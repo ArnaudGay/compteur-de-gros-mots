@@ -172,7 +172,8 @@ class AppState {
 
   async boot(transport: Transport): Promise<void> {
     this.transport = transport;
-    applyTheme(this.theme);
+    // Dans la démo publiée, la page hôte choisit le thème : on ne le touche que sur demande.
+    if (!__DEMO__ || this.theme !== 'auto') applyTheme(this.theme);
     setInterval(() => {
       this.clock = Date.now();
     }, 1000);
