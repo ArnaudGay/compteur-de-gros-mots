@@ -22,11 +22,13 @@ const auth = new Auth(db);
 const passkeys = new Passkeys(db, config);
 const backups = new Backups(db, config.backupDir, config.backupKeep, game.store.settings.timeZone);
 
-// Premier démarrage : création des joueurs et lien d'invitation de l'admin.
+// Premier démarrage : création des joueurs. Puis, tant que l'admin n'a pas choisi son code,
+// chaque démarrage affiche un nouveau lien d'invitation (le précédent ne marche plus) : après
+// un redéploiement (Dokploy…), les journaux du nouveau conteneur montrent toujours un lien valable.
 const created = game.seed(config.seedPlayers);
 if (created.length > 0) console.log(`[démarrage] Joueurs créés : ${created.map((p) => p.name).join(', ')}`);
 for (const player of game.store.activePlayers()) {
-  if (player.isAdmin && !auth.hasPin(player.id) && !auth.hasPendingInvitation(player.id, game.now())) {
+  if (player.isAdmin && !auth.hasPin(player.id)) {
     const { token } = auth.createInvitation(player.id, null, game.now());
     console.log(`[démarrage] Lien d'invitation ${de(player.name)} (admin, valable 7 jours) :\n  ${config.publicOrigin}/#/invitation/${token}`);
   }

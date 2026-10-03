@@ -114,21 +114,19 @@ curl https://grosmots.arnaudgay.fr/api/health
 
 ## 6. Premier lien : celui d'Arnaud
 
-Au tout premier démarrage, l'app crée les 4 joueurs et affiche le lien d'invitation de l'admin :
+Au premier démarrage, l'app crée les 4 joueurs. Ensuite, tant qu'Arnaud n'a pas choisi son code, **chaque démarrage affiche un nouveau lien d'invitation** dans les journaux (seul le dernier marche) :
+
+- **Option A** : `docker compose logs app | grep -A1 invitation` (prends le dernier lien affiché).
+- **Option B (Dokploy)** : onglet **Logs** de l'application, ligne « Lien d'invitation d'Arnaud ». Tu ne la vois pas ? Redéploie : le nouveau démarrage en affiche un nouveau.
+
+Tu peux aussi créer un lien à tout moment, pour n'importe quel joueur (`arnaud`, `alexis`, `alexandre`, `gatho`) :
 
 ```sh
-docker compose logs app | grep -A1 invitation
-```
-
-Si le lien a expiré ou s'est perdu, crée-en un autre à tout moment :
-
-```sh
+# Option A
 docker compose exec app node dist/server/cli.js invite arnaud
-```
-
-Avec Dokploy (option B), le lien s'affiche dans l'onglet **Logs** de l'application. Pour en créer un autre, sur le VPS (remplace `NOM` par le nom technique de l'application dans Dokploy ; `docker ps` l'affiche aussi) :
-
-```sh
+# Option B, dans le terminal de l'application sur Dokploy
+node dist/server/cli.js invite arnaud
+# Option B, en SSH sur le VPS (NOM : le nom technique de l'application, visible avec docker ps)
 docker exec $(docker ps -q --filter name=NOM | head -n 1) node dist/server/cli.js invite arnaud
 ```
 
