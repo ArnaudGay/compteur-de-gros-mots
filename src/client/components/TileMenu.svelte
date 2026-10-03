@@ -20,8 +20,10 @@
   const requestId = crypto.randomUUID();
 
   function quick(n: number) {
+    // Lu avant de fermer : une fois la fiche fermée, la case visée n'existe plus.
+    const target = targetId;
     onClose();
-    app.tap(targetId, n);
+    app.tap(target, n);
   }
 
   /** « 2026-10-03T14:32 » saisi à l'heure de Paris → instant UTC. */

@@ -37,13 +37,9 @@
       <span class="pulse" aria-hidden="true"></span>{statusLabel[app.link]}{#if waiting}{' · '}{waiting} en attente{/if}
     </span>
   </header>
-  <p class="sub">
-    {#if view?.phase === 'test'}
-      <span class="test">Phase de test</span> · les points seront remis à zéro au lancement
-    {:else if season}
-      {season.name} · jour {dayNumber} · {total} au total
-    {/if}
-  </p>
+  {#if view?.phase === 'live' && season}
+    <p class="sub">{season.name} · jour {dayNumber} · {total} au total</p>
+  {/if}
 
   {#if app.pendingVotes.length}
     {@const first = app.pendingVotes[0]}
@@ -162,10 +158,6 @@
     font-size: var(--t-sm);
     color: var(--ink-3);
     min-height: 1.2em;
-  }
-  .test {
-    font-weight: 700;
-    color: var(--ink);
   }
   .notice {
     display: flex;

@@ -16,8 +16,10 @@
   });
 
   async function choose(word: string | null) {
+    // Lu avant de fermer : une fois la fiche fermée, cet identifiant n'existe plus.
+    const id = reportId;
     onClose();
-    await app.setWord(reportId, word);
+    await app.setWord(id, word);
   }
 </script>
 

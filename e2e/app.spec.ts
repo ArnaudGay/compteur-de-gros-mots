@@ -16,7 +16,8 @@ test('invitation : on choisit son code et on arrive sur le tableau', async ({ br
   arnaud = await joinWithInvite(browser, 'arnaud', '271828');
   alexis = await joinWithInvite(browser, 'alexis', '314159');
   gatho = await joinWithInvite(browser, 'gatho', '161803');
-  await expect(arnaud.page.getByText('Phase de test')).toBeVisible();
+  // Pendant la phase de test, rien ne l'annonce sur le compteur.
+  await expect(arnaud.page.getByText('Phase de test')).toHaveCount(0);
   // Sur iPhone (hors app installée), on propose d'installer l'app.
   await expect(alexis.page.getByText(/Installe l'app sur ton iPhone/)).toBeVisible();
 });
@@ -166,4 +167,21 @@ test('lien spectateur : lecture seule, en direct', async ({ browser }) => {
   await expectTotal(view, 'Alexis', 1);
   await expect(tile(view, 'Alexis').locator('.foot')).toContainText(/Arnaud|Gatho/);
   await viewer.close();
+});
+
+// En fin de parcours : les cases visées n'ont aucun point récent (pas de regroupement).
+test('« Quel mot ? » enregistre le mot dit', async () => {
+  await tap(gatho.page, 'Arnaud');
+  await gatho.page.locator('.toast').getByRole('button', { name: 'Quel mot ?' }).click();
+  await gatho.page.locator('.sheet').getByRole('button', { name: 'merde', exact: true }).click();
+  await expect(gatho.page.locator('.toast')).toContainText('Mot enregistré');
+  const snapshot = (await (await gatho.page.request.get('/api/snapshot')).json()) as { recent: { reports: { word: string | null }[] }[] };
+  expect(snapshot.recent.flatMap((e) => e.reports.map((r) => r.word))).toContain('merde');
+});
+
+test('menu d’une case : +3 d’un coup', async () => {
+  await tile(alexis.page, 'Gatho').getByRole('button', { name: /Plus d'options/ }).click();
+  await alexis.page.locator('.sheet').getByRole('button', { name: '+3', exact: true }).click();
+  await expect(alexis.page.locator('.toast')).toContainText('+3 Gatho');
+  await expectTotal(gatho.page, 'Gatho', 3);
 });

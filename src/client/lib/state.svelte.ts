@@ -699,10 +699,14 @@ class AppState {
     if (tap && tap.state !== 'acked') {
       this.patchPending(reportId, { word });
       this.persistQueue();
-      if (tap.state === 'queued') return;
+      // Pas encore envoyé : le mot partira avec le tap.
+      if (tap.state === 'queued') return this.info(word ? 'Mot enregistré' : 'Mot retiré');
       if (!(await this.whenSent(reportId))) return;
     }
-    await this.act(() => this.transport.setWord(reportId, word));
+    await this.act(
+      () => this.transport.setWord(reportId, word),
+      () => (word ? 'Mot enregistré' : 'Mot retiré'),
+    );
   }
 
   /**
