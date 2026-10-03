@@ -82,7 +82,11 @@
   {:else}
     <p class="ask">
       {#if step === 'choose'}
-        Choisis ton code à 6 chiffres{#if info.hasPin}{' '}(il remplacera l'ancien){/if}.
+        {#if info.hasPin}
+          Choisis ton nouveau code à 6 chiffres. Il remplacera l'ancien : tes autres appareils seront déconnectés et Face ID sera à réactiver.
+        {:else}
+          Choisis ton code à 6 chiffres.
+        {/if}
       {:else}
         Retape-le pour confirmer.
       {/if}

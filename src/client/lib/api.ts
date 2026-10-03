@@ -123,7 +123,8 @@ export interface Transport {
   passkeyLogin(): Promise<void>;
   passkeyRegister(label: string | null): Promise<PasskeyInfo[]>;
   passkeyRemove(id: string): Promise<PasskeyInfo[]>;
-  changePin(currentPin: string, newPin: string): Promise<void>;
+  /** Renvoie le nombre d'autres appareils déconnectés. */
+  changePin(currentPin: string, newPin: string): Promise<number>;
   sessions(): Promise<SessionRow[]>;
   revokeSession(id: string): Promise<void>;
 

@@ -30,17 +30,26 @@ sw.addEventListener('fetch', (event) => {
   if (request.method !== 'GET' || url.origin !== sw.location.origin || url.pathname.startsWith('/api/')) return;
 
   if (request.mode === 'navigate') {
-    // Page : réseau d'abord (version à jour), sinon la copie locale (hors ligne).
+    // Page : réseau d'abord (version à jour). Mais hors ligne, réseau trop lent, ou serveur en
+    // pleine mise à jour (erreur 502) : la copie locale, pour que l'app s'ouvre toujours.
     event.respondWith(
-      fetch(request)
-        .then((response) => {
+      (async () => {
+        const network = fetch(request).then((response) => {
           if (response.ok) {
             const copy = response.clone();
             void caches.open(CACHE).then((cache) => cache.put('/', copy));
           }
           return response;
-        })
-        .catch(async () => (await caches.match('/')) ?? Response.error()),
+        });
+        const cached = await caches.match('/');
+        if (!cached) return network;
+        try {
+          const response = await Promise.race([network, new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000))]);
+          return response && response.status < 500 ? response : cached;
+        } catch {
+          return cached;
+        }
+      })(),
     );
     return;
   }

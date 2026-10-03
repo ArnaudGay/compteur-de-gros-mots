@@ -16,6 +16,8 @@
   let word = $state<string | null>(null);
   let busy = $state(false);
   let isMe = $derived(targetId === app.meId);
+  // Même identifiant pour chaque essai de ce formulaire : une réponse perdue ne compte pas double.
+  const requestId = crypto.randomUUID();
 
   function quick(n: number) {
     onClose();
@@ -34,7 +36,7 @@
     const at = parseLocal(when);
     if (at === null) return app.info("L'heure n'est pas valide.");
     busy = true;
-    const ok = await app.addManual(targetId, count, at, note.trim() || null, word);
+    const ok = await app.addManual(requestId, targetId, count, at, note.trim() || null, word);
     busy = false;
     if (ok) onClose();
   }

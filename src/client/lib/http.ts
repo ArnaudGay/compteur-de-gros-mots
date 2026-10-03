@@ -14,7 +14,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
-    throw new ApiError('network', 'Pas de réseau. Ce sera envoyé dès que possible.');
+    throw new ApiError('network', 'Pas de réseau. Réessaie quand la connexion revient.');
   }
   const type = res.headers.get('content-type') ?? '';
   const data: unknown = type.includes('application/json') ? await res.json().catch(() => null) : null;
@@ -156,9 +156,7 @@ export function createHttpTransport(): Transport {
       return (await post<{ passkeys: Awaited<ReturnType<Transport['passkeyRegister']>> }>('/api/me/passkeys', { response, label })).passkeys;
     },
     passkeyRemove: async (id) => (await request<{ passkeys: Awaited<ReturnType<Transport['passkeyRemove']>> }>('DELETE', `/api/me/passkeys/${encodeURIComponent(id)}`)).passkeys,
-    changePin: async (currentPin, newPin) => {
-      await request('PUT', '/api/me/pin', { currentPin, newPin });
-    },
+    changePin: async (currentPin, newPin) => (await request<{ signedOut?: number }>('PUT', '/api/me/pin', { currentPin, newPin })).signedOut ?? 0,
     sessions: () => get('/api/me/sessions'),
     revokeSession: async (id) => {
       await request('DELETE', `/api/me/sessions/${encodeURIComponent(id)}`);

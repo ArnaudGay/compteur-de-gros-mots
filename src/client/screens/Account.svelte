@@ -82,9 +82,12 @@
     if (newPin !== confirmPin) return (pinError = 'Les deux nouveaux codes ne sont pas identiques.');
     busy = true;
     try {
-      await app.transport.changePin(currentPin, newPin);
+      const signedOut = await app.transport.changePin(currentPin, newPin);
       currentPin = newPin = confirmPin = '';
-      app.info('Code modifié');
+      app.info(
+        'Code modifié',
+        signedOut === 0 ? undefined : signedOut === 1 ? 'Ton autre appareil a été déconnecté.' : `Tes ${signedOut} autres appareils ont été déconnectés.`,
+      );
     } catch (error) {
       pinError = (error as Error).message;
     }

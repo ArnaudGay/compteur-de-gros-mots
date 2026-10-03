@@ -3,7 +3,7 @@
 
 import * as cmd from '../../core/commands';
 import { DEFAULT_PLAYERS, DEFAULT_SETTINGS } from '../../core/defaults';
-import { DomainError } from '../../core/errors';
+import { DomainError, type ErrorCode } from '../../core/errors';
 import { buildStats } from '../../core/stats';
 import { Store } from '../../core/store';
 import { DAY, HOUR, MINUTE } from '../../core/time';
@@ -66,6 +66,18 @@ function seedStore(now: number): Store {
 
 const delay = (ms = 120) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Mêmes codes HTTP que le vrai serveur. */
+const STATUS: Record<ErrorCode, number> = {
+  invalid: 400,
+  unauthenticated: 401,
+  forbidden: 403,
+  not_found: 404,
+  conflict: 409,
+  expired: 410,
+  locked: 423,
+  rate_limited: 429,
+};
+
 export function createDemoTransport(): Transport {
   const store = seedStore(Date.now());
   let meId: string | null = 'arnaud';
@@ -85,7 +97,7 @@ export function createDemoTransport(): Transport {
       if (tx.changes.some((c) => c.kind !== 'journal')) setTimeout(publish, 0);
       return { result: tx.result, version: tx.version };
     } catch (error) {
-      if (error instanceof DomainError) throw new ApiError(error.code, error.message, 400);
+      if (error instanceof DomainError) throw new ApiError(error.code, error.message, STATUS[error.code]);
       throw error;
     }
   };
@@ -171,6 +183,7 @@ export function createDemoTransport(): Transport {
     },
     async changePin() {
       await delay(300);
+      return 0;
     },
     async sessions() {
       return [{ id: 'demo', playerId: me(), createdAt: Date.now() - DAY, lastSeenAt: Date.now(), userAgent: navigator.userAgent, method: 'pin', current: true }];

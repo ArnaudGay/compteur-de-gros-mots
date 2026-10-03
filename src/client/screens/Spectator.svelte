@@ -8,17 +8,22 @@
   let { token }: { token: string } = $props();
   let snapshot = $state<Snapshot | null>(null);
   let link = $state<LinkStatus>('connecting');
+  /** Décalage entre l'horloge du téléphone et celle du serveur, mesuré à chaque état reçu. */
+  let offset = $state(0);
 
   $effect(() => {
     const stop = app.transport.spectate(token, {
-      snapshot: (s) => (snapshot = s),
+      snapshot: (s) => {
+        offset = s.now - Date.now();
+        snapshot = s;
+      },
       status: (s) => (link = s),
     });
     return stop;
   });
 
   let names = (id: string) => snapshot?.players.find((p) => p.id === id)?.name ?? '?';
-  let now = $derived(app.clock + (snapshot ? snapshot.now - Date.now() : 0));
+  let now = $derived(app.clock + offset);
 </script>
 
 <div class="spectator">

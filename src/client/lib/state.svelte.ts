@@ -1,9 +1,11 @@
-// État de l'app côté téléphone : l'état reçu du serveur, les taps pas encore confirmés
-// (affichés tout de suite, et gardés si le réseau manque), les bandeaux, la connexion.
+// État de l'app côté téléphone : l'état reçu du serveur, les taps et les annulations pas
+// encore confirmés (affichés tout de suite, et gardés si le réseau manque), les bandeaux.
 
+import { CLOCK } from '../../core/defaults';
 import { listing } from '../../core/french';
-import { activeReporters, decideMerge, pointsOf, type EpisodeLike } from '../../core/merge';
-import type { EpisodeView, Player, ReportOutcome, ReportResult, Snapshot } from '../../core/types';
+import { activeReporters, boundariesOf, decideMerge, pointsOf, type EpisodeLike, type ReportLike } from '../../core/merge';
+import { addToTotals, periodBounds } from '../../core/periods';
+import type { EpisodeView, LastPoint, Player, ReportOutcome, ReportResult, ReportView, Snapshot } from '../../core/types';
 import { ApiError, type LinkStatus, type Me, type Transport } from './api';
 import { ago } from './format';
 import { haptic } from './haptics';
@@ -20,8 +22,16 @@ export interface PendingTap {
   word: string | null;
   state: 'sending' | 'queued' | 'acked';
   ackVersion: number | null;
-  /** Annulé avant que le serveur ait répondu : on annulera dès la confirmation. */
+  /** Annulé avant confirmation : n'est plus affiché ni renvoyé (l'annulation suit dans `cancels`). */
   cancel?: boolean;
+}
+
+/** Une annulation (« Annuler », « Retirer »), gardée jusqu'à ce que le serveur l'ait prise en compte. */
+export interface PendingCancel {
+  reportId: string;
+  playerId: string;
+  state: 'sending' | 'queued' | 'acked';
+  ackVersion: number | null;
 }
 
 export interface ToastAction {
@@ -48,15 +58,15 @@ export type Sheet =
 
 type Prediction = Pick<ReportResult, 'outcome' | 'otherReporterIds' | 'episodeAgeMs' | 'suggestion'>;
 
+/** Durée du bandeau « Annuler » après un tap. */
+const UNDO_MS = 10_000;
+/** Une case ignore un second tap aussi rapproché (double tap involontaire). */
+const TILE_LOCK_MS = 300;
+
+const like = (r: ReportView): ReportLike => ({ reporterId: r.reporterId, count: r.count, cancelled: r.cancelledAt !== null });
+
 function toLike(e: EpisodeView): EpisodeLike {
-  return {
-    id: e.id,
-    targetId: e.targetId,
-    kind: e.kind,
-    startedAt: e.startedAt,
-    voided: e.voided,
-    reports: e.reports.map((r) => ({ reporterId: r.reporterId, count: r.count, cancelled: r.cancelledAt !== null })),
-  };
+  return { id: e.id, targetId: e.targetId, kind: e.kind, startedAt: e.startedAt, voided: e.voided, reports: e.reports.map(like) };
 }
 
 function isAcknowledged(tap: PendingTap, snap: Snapshot): boolean {
@@ -64,9 +74,35 @@ function isAcknowledged(tap: PendingTap, snap: Snapshot): boolean {
   return snap.recent.some((e) => e.reports.some((r) => r.id === tap.id));
 }
 
+function isCancelAcknowledged(c: PendingCancel, snap: Snapshot): boolean {
+  if (c.ackVersion !== null && snap.version >= c.ackVersion) return true;
+  return snap.recent.some((e) => e.reports.some((r) => r.id === c.reportId && r.cancelledAt !== null));
+}
+
+/** Erreur passagère (pas de réseau, serveur indisponible) : on réessaiera. */
+function retryable(error: unknown): boolean {
+  return error instanceof ApiError && (error.offline || error.status >= 500);
+}
+
+function boundaries(view: Snapshot): number[] {
+  return boundariesOf(view.settings.challengeStartedAt, view.seasons);
+}
+
+/** « il y a 4 s · par Alexis » : le signalement encore actif le plus récent d'un épisode. */
+function lastOf(e: EpisodeView): LastPoint | null {
+  const active = e.reports.filter((r) => r.cancelledAt === null);
+  if (e.voided || e.points === 0 || active.length === 0) return null;
+  return { at: Math.max(...active.map((r) => r.occurredAt)), episodeId: e.id, reporterIds: activeReporters(active.map(like)) };
+}
+
 /** Ce que le serveur va répondre, calculé avec la même règle que lui. */
 function predict(view: Snapshot, tap: PendingTap): Prediction {
-  const d = decideMerge(view.recent.map(toLike), { targetId: tap.targetId, reporterId: tap.playerId, occurredAt: tap.occurredAt, count: tap.count }, view.settings);
+  const d = decideMerge(
+    view.recent.map(toLike),
+    { targetId: tap.targetId, reporterId: tap.playerId, occurredAt: tap.occurredAt, count: tap.count },
+    view.settings,
+    boundaries(view),
+  );
   if (d.kind === 'merge') {
     const outcome: ReportOutcome = d.after > d.before ? 'increment' : 'confirm';
     return {
@@ -86,17 +122,30 @@ function predict(view: Snapshot, tap: PendingTap): Prediction {
   };
 }
 
-/** L'état du serveur + les taps pas encore confirmés, pour un affichage instantané. */
-export function applyPending(snap: Snapshot | null, pending: PendingTap[]): Snapshot | null {
+/** L'état du serveur + ce que ce téléphone a fait sans confirmation, pour un affichage instantané. */
+export function applyPending(snap: Snapshot | null, pending: PendingTap[], cancels: PendingCancel[] = []): Snapshot | null {
   if (!snap) return null;
-  const active = pending.filter((p) => !isAcknowledged(p, snap));
-  if (active.length === 0) return snap;
+  const taps = pending.filter((p) => !p.cancel && !isAcknowledged(p, snap));
+  const undo = cancels.filter((c) => !isCancelAcknowledged(c, snap));
+  if (taps.length === 0 && undo.length === 0) return snap;
   const totals = structuredClone(snap.totals);
   const last = { ...snap.last };
   const recent: EpisodeView[] = snap.recent.map((e) => ({ ...e, reports: [...e.reports] }));
-  for (const tap of active) {
-    const d = decideMerge(recent.map(toLike), { targetId: tap.targetId, reporterId: tap.playerId, occurredAt: tap.occurredAt, count: tap.count }, snap.settings);
-    const report = { id: tap.id, reporterId: tap.playerId, count: tap.count, occurredAt: tap.occurredAt, word: tap.word, link: d.kind === 'merge' ? ('auto' as const) : ('new' as const), cancelledAt: null, cancelledBy: null };
+  const b = periodBounds(snap.settings, snap.seasons.find((s) => s.id === snap.currentSeasonId) ?? null, snap.now);
+  const limits = boundaries(snap);
+
+  for (const tap of taps) {
+    const d = decideMerge(recent.map(toLike), { targetId: tap.targetId, reporterId: tap.playerId, occurredAt: tap.occurredAt, count: tap.count }, snap.settings, limits);
+    const report: ReportView = {
+      id: tap.id,
+      reporterId: tap.playerId,
+      count: tap.count,
+      occurredAt: tap.occurredAt,
+      word: tap.word,
+      link: d.kind === 'merge' ? 'auto' : 'new',
+      cancelledAt: null,
+      cancelledBy: null,
+    };
     let delta: number;
     let episode: EpisodeView;
     if (d.kind === 'merge') {
@@ -124,18 +173,26 @@ export function applyPending(snap: Snapshot | null, pending: PendingTap[]): Snap
       delta = tap.count;
     }
     const t = totals[tap.targetId];
-    if (t && delta > 0) {
-      t.today += delta;
-      t.week += delta;
-      t.month += delta;
-      t.all += delta;
-      if (snap.currentSeasonId) t.season += delta;
+    if (t && delta > 0) addToTotals(t, b, episode.startedAt, delta);
+    if (tap.occurredAt >= (last[tap.targetId]?.at ?? Number.NEGATIVE_INFINITY)) {
+      last[tap.targetId] = { at: tap.occurredAt, episodeId: episode.id, reporterIds: activeReporters(episode.reports.map(like)) };
     }
-    last[tap.targetId] = {
-      at: tap.occurredAt,
-      episodeId: episode.id,
-      reporterIds: activeReporters(episode.reports.map((r) => ({ reporterId: r.reporterId, count: r.count, cancelled: r.cancelledAt !== null }))),
-    };
+  }
+
+  for (const c of undo) {
+    const episode = recent.find((e) => e.reports.some((r) => r.id === c.reportId && r.cancelledAt === null));
+    if (!episode) continue;
+    const before = episode.voided ? 0 : episode.points;
+    episode.reports = episode.reports.map((r) => (r.id === c.reportId ? { ...r, cancelledAt: snap.now, cancelledBy: c.playerId } : r));
+    episode.points = episode.voided ? 0 : pointsOf(episode.reports.map(like));
+    const t = totals[episode.targetId];
+    if (t && episode.points !== before) addToTotals(t, b, episode.startedAt, episode.points - before);
+    if (last[episode.targetId]?.episodeId === episode.id) {
+      const candidates = [episode, ...recent.filter((e) => e.targetId === episode.targetId && e.id !== episode.id)].map(lastOf);
+      const replacement = candidates.filter((l): l is LastPoint => l !== null).sort((x, y) => y.at - x.at)[0];
+      // Sans remplaçant dans les épisodes récents, l'état du serveur corrigera dans un instant.
+      if (replacement) last[episode.targetId] = replacement;
+    }
   }
   return { ...snap, totals, last, recent };
 }
@@ -147,13 +204,16 @@ class AppState {
   snapshot = $state.raw<Snapshot | null>(null);
   link = $state<LinkStatus>('connecting');
   pending = $state<PendingTap[]>([]);
+  cancels = $state<PendingCancel[]>([]);
   toast = $state<Toast | null>(null);
   sheet = $state<Sheet | null>(null);
   clock = $state(Date.now());
   theme = $state<ThemeChoice>(readLocal<ThemeChoice>('gm.theme', 'auto'));
   reveal = $state<boolean>(readLocal('gm.reveal', false));
 
-  view = $derived(applyPending(this.snapshot, this.pending));
+  view = $derived(applyPending(this.snapshot, this.pending, this.cancels));
+  /** Taps et annulations qui attendent le retour du réseau (« 2 en attente »). */
+  waiting = $derived(this.pending.filter((p) => p.state === 'queued' && !p.cancel).length + this.cancels.filter((c) => c.state === 'queued').length);
   /** Contestations où j'ai un vote à donner. */
   pendingVotes = $derived.by(() => {
     const me = this.me?.player.id;
@@ -167,6 +227,10 @@ class AppState {
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
   private toastSeq = 0;
   private sending = new Map<string, Promise<void>>();
+  private flushing: Promise<void> | null = null;
+  private flushAgain = false;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastTileTap = new Map<string, number>();
   private lastCache = 0;
 
   // --- Démarrage -----------------------------------------------------------------
@@ -217,7 +281,9 @@ class AppState {
     const me = this.me;
     if (!me) return;
     this.phase = 'app';
+    // Ce qui n'avait pas été confirmé avant la fermeture de l'app repart.
     this.pending = readLocal<PendingTap[]>(this.queueKey(), []).map((p) => (p.state === 'acked' ? p : { ...p, state: 'queued' }));
+    this.cancels = readLocal<PendingCancel[]>(this.cancelKey(), []).map((c) => (c.state === 'acked' ? c : { ...c, state: 'queued' }));
     this.disconnect?.();
     this.disconnect = this.transport.connect({
       snapshot: (s) => this.onSnapshot(s),
@@ -232,10 +298,14 @@ class AppState {
   }
 
   leaveApp(): void {
+    // La file reste enregistrée pour ce joueur : elle repartira à sa prochaine connexion.
+    this.persistQueue();
     this.disconnect?.();
     this.disconnect = null;
     this.me = null;
     this.snapshot = null;
+    this.pending = [];
+    this.cancels = [];
     writeLocal('gm.me', null);
     this.phase = 'auth';
   }
@@ -248,10 +318,15 @@ class AppState {
 
   private onSnapshot(s: Snapshot): void {
     this.offset = s.now - Date.now();
-    const before = this.pending.length;
-    this.pending = this.pending.filter((p) => !isAcknowledged(p, s));
+    const pending = this.pending.filter((p) => !isAcknowledged(p, s));
+    const cancels = this.cancels.filter((c) => !isCancelAcknowledged(c, s));
+    const changed = pending.length !== this.pending.length || cancels.length !== this.cancels.length;
+    if (changed) {
+      this.pending = pending;
+      this.cancels = cancels;
+    }
     this.snapshot = s;
-    if (this.pending.length !== before) this.persistQueue();
+    if (changed) this.persistQueue();
     if (Date.now() - this.lastCache > 10_000) {
       this.lastCache = Date.now();
       writeLocal('gm.snapshot', s);
@@ -285,11 +360,19 @@ class AppState {
     return `gm.queue.${this.me?.player.id ?? 'personne'}`;
   }
 
+  private cancelKey(): string {
+    return `gm.cancels.${this.me?.player.id ?? 'personne'}`;
+  }
+
   private persistQueue(): void {
     if (!this.me) return;
     writeLocal(
       this.queueKey(),
       this.pending.filter((p) => p.state !== 'acked'),
+    );
+    writeLocal(
+      this.cancelKey(),
+      this.cancels.filter((c) => c.state !== 'acked'),
     );
   }
 
@@ -299,6 +382,14 @@ class AppState {
 
   private removePending(id: string): void {
     this.pending = this.pending.filter((p) => p.id !== id);
+  }
+
+  private patchCancel(reportId: string, patch: Partial<PendingCancel>): void {
+    this.cancels = this.cancels.map((c) => (c.reportId === reportId ? { ...c, ...patch } : c));
+  }
+
+  private removeCancel(reportId: string): void {
+    this.cancels = this.cancels.filter((c) => c.reportId !== reportId);
   }
 
   setTheme(choice: ThemeChoice): void {
@@ -358,6 +449,12 @@ class AppState {
     const me = this.me;
     const view = this.view;
     if (!me || !view) return;
+    if (count === 1) {
+      // Double tap involontaire : la case ignore un second tap dans les 0,3 s.
+      const at = performance.now();
+      if (at - (this.lastTileTap.get(targetId) ?? Number.NEGATIVE_INFINITY) < TILE_LOCK_MS) return;
+      this.lastTileTap.set(targetId, at);
+    }
     haptic();
     const tap: PendingTap = {
       id: crypto.randomUUID(),
@@ -381,22 +478,24 @@ class AppState {
       try {
         const result = await this.transport.report({ id: tap.id, targetId: tap.targetId, occurredAt: tap.occurredAt, count: tap.count, word: tap.word });
         this.patchPending(tap.id, { state: 'acked', ackVersion: result.version });
-        const current = this.pending.find((p) => p.id === tap.id);
-        if (current?.cancel) {
-          await this.cancelReport(tap.id);
-        } else if (result.outcome !== 'duplicate' && this.toast?.key === tap.id) {
-          this.tapToast(tap, result, true);
-        }
+        const cancelled = this.pending.find((p) => p.id === tap.id)?.cancel === true || this.cancels.some((c) => c.reportId === tap.id);
+        if (!cancelled && result.outcome !== 'duplicate' && this.toast?.key === tap.id) this.tapToast(tap, result, true);
       } catch (error) {
-        if (error instanceof ApiError && error.offline) {
+        const cancelled = this.pending.find((p) => p.id === tap.id)?.cancel === true;
+        if (retryable(error)) {
           this.patchPending(tap.id, { state: 'queued' });
-          if (this.toast?.key === tap.id) this.offlineToast(tap);
+          if (!cancelled && this.toast?.key === tap.id) this.offlineToast(tap, error instanceof ApiError && error.status > 0);
         } else if (error instanceof ApiError && error.status === 401) {
           this.patchPending(tap.id, { state: 'queued' });
           this.leaveApp();
+        } else if (error instanceof ApiError && error.code === 'rate_limited' && tap.occurredAt < this.serverNow() - CLOCK.maxPastMs + 60_000) {
+          // Tap de plus de 24 h (longue coupure) : le serveur le date d'aujourd'hui, et il en arrive
+          // trop d'un coup. On l'enverra un peu plus tard plutôt que de le perdre.
+          this.patchPending(tap.id, { state: 'queued' });
+          this.retryLater(11_000);
         } else {
           this.removePending(tap.id);
-          this.error(error);
+          if (!cancelled) this.error(error);
         }
       } finally {
         this.persistQueue();
@@ -407,13 +506,75 @@ class AppState {
     return job;
   }
 
-  /** Renvoie les taps gardés pendant une coupure, dans l'ordre. */
-  async flush(): Promise<void> {
-    for (const tap of this.pending.filter((p) => p.state === 'queued')) {
-      if (this.sending.has(tap.id)) continue;
-      this.patchPending(tap.id, { state: 'sending' });
-      await this.send(tap);
-      if (this.pending.find((p) => p.id === tap.id)?.state === 'queued') break;
+  private retryLater(ms: number): void {
+    if (this.retryTimer) return;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      void this.flush();
+    }, ms);
+  }
+
+  /**
+   * Renvoie ce qui attend le réseau : d'abord les annulations (un tap annulé ne doit jamais
+   * partir), puis les taps, dans l'ordre. Un seul envoi à la fois.
+   */
+  flush(): Promise<void> {
+    this.flushAgain = true;
+    if (!this.flushing) {
+      this.flushing = (async () => {
+        while (this.flushAgain && this.me) {
+          this.flushAgain = false;
+          if (!(await this.sendCancels())) break;
+          if (!(await this.sendQueuedTaps())) break;
+        }
+      })().finally(() => {
+        this.flushing = null;
+      });
+    }
+    return this.flushing;
+  }
+
+  /** Renvoie faux si le réseau manque encore. */
+  private async sendQueuedTaps(): Promise<boolean> {
+    for (;;) {
+      // Relu à chaque tour : un tap annulé ou complété pendant l'envoi précédent est pris en compte.
+      const next = this.pending.find((p) => p.state === 'queued' && !p.cancel && !this.sending.has(p.id));
+      if (!next) return true;
+      this.patchPending(next.id, { state: 'sending' });
+      await this.send(next);
+      if (this.pending.find((p) => p.id === next.id)?.state === 'queued') return false;
+    }
+  }
+
+  /** Renvoie faux si le réseau manque encore. */
+  private async sendCancels(): Promise<boolean> {
+    for (;;) {
+      const job = this.cancels.find((c) => c.state === 'queued');
+      if (!job) return true;
+      this.patchCancel(job.reportId, { state: 'sending' });
+      // Le tap à annuler est peut-être encore en route : on attend sa réponse.
+      await this.sending.get(job.reportId);
+      try {
+        const result = await this.transport.cancel(job.reportId);
+        this.patchCancel(job.reportId, { state: 'acked', ackVersion: result.version });
+        this.removePending(job.reportId);
+      } catch (error) {
+        if (retryable(error)) {
+          this.patchCancel(job.reportId, { state: 'queued' });
+          return false;
+        }
+        if (error instanceof ApiError && error.status === 401) {
+          this.patchCancel(job.reportId, { state: 'queued' });
+          this.leaveApp();
+          return false;
+        }
+        // Introuvable : le tap n'était jamais arrivé au serveur. Sinon (refus), rien à refaire.
+        this.removeCancel(job.reportId);
+        this.removePending(job.reportId);
+        if (!(error instanceof ApiError && error.code === 'not_found')) this.error(error);
+      } finally {
+        this.persistQueue();
+      }
     }
   }
 
@@ -435,7 +596,7 @@ class AppState {
         title: `Déjà compté par ${others}`,
         detail: `${ago(this.serverNow() - result.episodeAgeMs, this.serverNow()).replace(/^il y a/, 'Il y a').replace("à l'instant", "À l'instant")}. Ton signalement confirme le point.`,
         actions: [{ label: "C'est un autre", primary: true, run: () => this.splitTap(tap.id) }, undo],
-        duration: 8000,
+        duration: UNDO_MS,
       };
     } else if (result.suggestion) {
       const suggestion = result.suggestion;
@@ -446,7 +607,7 @@ class AppState {
         title: `+${tap.count} ${name}`,
         detail: `${who} en a compté un ${ago(this.serverNow() - suggestion.ageMs, this.serverNow())}.`,
         actions: [{ label: "C'est le même", primary: true, run: () => this.mergeTap(tap.id, suggestion.episodeId) }, undo],
-        duration: 8000,
+        duration: UNDO_MS,
       };
     } else {
       toast = {
@@ -454,7 +615,7 @@ class AppState {
         tone: 'point',
         title: `+${tap.count} ${name}`,
         actions: [undo, { label: 'Quel mot ?', run: () => this.openWord(tap.id, tap.targetId) }],
-        duration: 6000,
+        duration: UNDO_MS,
       };
     }
     if (keepTimer && this.toast?.key === tap.id) {
@@ -465,38 +626,41 @@ class AppState {
     }
   }
 
-  private offlineToast(tap: PendingTap): void {
+  private offlineToast(tap: PendingTap, serverDown = false): void {
     this.showToast({
       key: tap.id,
       tone: 'offline',
-      title: 'Pas de réseau',
-      detail: `Ton +${tap.count} pour ${this.name(tap.targetId)} partira dès le retour du réseau.`,
+      title: serverDown ? 'Serveur indisponible' : 'Pas de réseau',
+      detail: `Ton +${tap.count} pour ${this.name(tap.targetId)} partira ${serverDown ? 'dès que le serveur répondra' : 'dès le retour du réseau'}.`,
       actions: [{ label: 'Annuler', run: () => this.cancelTap(tap.id) }],
-      duration: 6000,
+      duration: UNDO_MS,
     });
   }
 
-  async cancelTap(reportId: string): Promise<void> {
-    const tap = this.pending.find((p) => p.id === reportId);
-    if (tap && tap.state === 'queued') {
-      this.removePending(reportId);
-      this.persistQueue();
-      this.info('Annulé');
-      return;
-    }
-    if (tap && tap.state === 'sending') {
-      this.patchPending(reportId, { cancel: true });
-      this.info('Annulé');
-      return;
-    }
-    await this.cancelReport(reportId);
+  /** Ce que l'annulation va changer, d'après l'affichage actuel. */
+  private cancelMessage(reportId: string): string {
+    const episode = this.view?.recent.find((e) => e.reports.some((r) => r.id === reportId));
+    if (!episode || episode.voided) return 'Signalement retiré';
+    const after = pointsOf(episode.reports.filter((r) => r.id !== reportId).map(like));
+    return after < episode.points ? 'Point annulé' : "Signalement retiré. Le point reste : un autre témoin l'a compté.";
   }
 
-  async cancelReport(reportId: string): Promise<void> {
-    await this.act(
-      () => this.transport.cancel(reportId),
-      (r) => (r.delta < 0 ? 'Point annulé' : 'Signalement retiré'),
-    );
+  /**
+   * Annule un de mes signalements (ou, pour l'admin, celui d'un autre). L'affichage change
+   * tout de suite ; l'annulation est gardée sur le téléphone jusqu'à ce que le serveur l'ait
+   * prise en compte, même sans réseau ou si l'app est fermée entre-temps.
+   */
+  cancelTap(reportId: string): void {
+    const me = this.me;
+    if (!me) return;
+    const message = this.cancelMessage(reportId);
+    if (this.pending.some((p) => p.id === reportId)) this.patchPending(reportId, { cancel: true });
+    if (!this.cancels.some((c) => c.reportId === reportId)) {
+      this.cancels = [...this.cancels, { reportId, playerId: me.player.id, state: 'queued', ackVersion: null }];
+    }
+    this.persistQueue();
+    this.info(message);
+    void this.flush();
   }
 
   async splitTap(reportId: string): Promise<void> {
@@ -531,10 +695,13 @@ class AppState {
     await this.act(() => this.transport.setWord(reportId, word));
   }
 
-  /** Ajout différé ou +N : un épisode à part. */
-  async addManual(targetId: string, count: number, occurredAt: number, note: string | null, word: string | null): Promise<boolean> {
+  /**
+   * Ajout différé ou +N : un épisode à part. `requestId` reste le même tant que le formulaire
+   * est ouvert : réessayer après une réponse perdue ne compte pas deux fois.
+   */
+  async addManual(requestId: string, targetId: string, count: number, occurredAt: number, note: string | null, word: string | null): Promise<boolean> {
     const result = await this.act(
-      () => this.transport.manual({ id: crypto.randomUUID(), targetId, count, occurredAt, note, word }),
+      () => this.transport.manual({ id: requestId, targetId, count, occurredAt, note, word }),
       () => `+${count} ${this.name(targetId)}`,
     );
     return result !== null;
@@ -545,5 +712,5 @@ export const app = new AppState();
 
 /** Points d'un épisode vu depuis l'interface (même règle que le serveur). */
 export function episodePointsView(e: EpisodeView): number {
-  return e.voided ? 0 : pointsOf(e.reports.map((r) => ({ reporterId: r.reporterId, count: r.count, cancelled: r.cancelledAt !== null })));
+  return e.voided ? 0 : pointsOf(e.reports.map(like));
 }

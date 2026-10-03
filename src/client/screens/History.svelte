@@ -42,11 +42,54 @@
     }
   }
 
-  // Recharge à chaque changement de filtre et quand l'état du défi change.
+  /**
+   * L'état du défi a changé : on rafraîchit tout ce qui est déjà affiché, sans revenir à la
+   * première page (les pages chargées avec « Voir plus » restent là).
+   */
+  async function refresh() {
+    const count = Math.min(200, Math.max(40, loaded.length));
+    try {
+      const page = await app.transport.history({
+        before: null,
+        limit: count,
+        player: filter !== 'all' && filter !== 'var' ? filter : null,
+        contested: filter === 'var',
+      });
+      if (loaded.length <= count) {
+        loaded = page.items;
+        next = page.next;
+      } else {
+        const fresh = new Set(page.items.map((e) => e.id));
+        loaded = [...page.items, ...loaded.slice(count).filter((e) => !fresh.has(e.id))];
+      }
+    } catch {
+      // Pas de réseau : on garde la liste affichée.
+    }
+  }
+
+  // Nouveau filtre : on repart de la première page.
   $effect(() => {
     void filter;
-    void app.snapshot?.version;
     untrack(() => void load(true));
+  });
+
+  // Chaque changement d'état (un point, un vote…) : rafraîchissement groupé, une fois par demi-seconde au plus.
+  let seenVersion: number | null = null;
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  $effect(() => {
+    const version = app.snapshot?.version ?? null;
+    untrack(() => {
+      if (seenVersion !== null && version !== null && version !== seenVersion && !refreshTimer) {
+        refreshTimer = setTimeout(() => {
+          refreshTimer = null;
+          void refresh();
+        }, 500);
+      }
+      if (version !== null) seenVersion = version;
+    });
+  });
+  $effect(() => () => {
+    if (refreshTimer) clearTimeout(refreshTimer);
   });
 
   /** Les points tout juste tapés (pas encore confirmés) apparaissent aussi, en direct. */

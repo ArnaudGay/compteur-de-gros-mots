@@ -186,7 +186,7 @@
           {#if p.archivedAt !== null}<span class="tag">archivé</span>{/if}
         </div>
         <p class="hint">
-          {p.hasPin ? 'code choisi' : p.pendingInvitation ? 'invitation en attente' : 'pas encore invité'} · Face ID : {p.passkeys} · notifications : {p.pushDevices}
+          {p.hasPin ? 'code choisi' : p.pendingInvitation ? 'invitation en attente' : "pas encore d'invitation"} · Face ID : {p.passkeys} · notifications : {p.pushDevices}
         </p>
         {#if invites[p.id]}
           <p class="invite"><Icon name="link" size={16} /><span>{invites[p.id]}</span></p>

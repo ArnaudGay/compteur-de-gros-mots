@@ -1,5 +1,6 @@
 <script lang="ts">
   import { de, listing, plural } from '../../core/french';
+  import { boundariesOf, segmentOf } from '../../core/merge';
   import type { EpisodeView, ReportView } from '../../core/types';
   import { clock, longDate, remaining } from '../lib/format';
   import { app } from '../lib/state.svelte';
@@ -17,8 +18,17 @@
   let busy = $state(false);
 
   // L'épisode reste à jour en direct : on préfère la version de l'état reçu, sinon on la demande.
-  let live = $derived(app.view?.recent.find((e) => e.id === episodeId) ?? null);
+  // Un point tout juste tapé (« pending-… ») change d'identifiant une fois confirmé par le
+  // serveur : on le retrouve grâce à son signalement.
+  let pendingReportId = $derived(episodeId.startsWith('pending-') ? episodeId.slice('pending-'.length) : null);
+  let live = $derived(
+    app.view?.recent.find((e) => e.id === episodeId) ??
+      (pendingReportId ? app.view?.recent.find((e) => e.reports.some((r) => r.id === pendingReportId)) : undefined) ??
+      null,
+  );
   let episode = $derived(live ?? loaded);
+  let gone = $derived(missing || (pendingReportId !== null && !live && !app.pending.some((p) => p.id === pendingReportId && !p.cancel)));
+  let isPending = $derived(!!episode && episode.id.startsWith('pending-'));
 
   $effect(() => {
     void app.snapshot?.version;
@@ -37,6 +47,8 @@
   let isAdmin = $derived(app.me?.player.isAdmin === true);
   let target = $derived(episode ? app.player(episode.targetId) : undefined);
   let contest = $derived(episode?.contest ?? null);
+  /** En cours de vote ou déjà jugé : le point ne se découpe plus et ne se regroupe plus. */
+  let judged = $derived(!!contest && contest.status !== 'withdrawn');
   let activeReports = $derived(episode?.reports.filter((r) => r.cancelledAt === null) ?? []);
   let canContest = $derived(
     !!episode &&
@@ -44,18 +56,29 @@
       episode.targetId === meId &&
       !episode.voided &&
       episode.points > 0 &&
-      !episode.id.startsWith('pending-') &&
-      app.serverNow() - episode.startedAt <= app.view.settings.contestWindowMs &&
+      !isPending &&
+      app.serverNow() - episode.createdAt <= app.view.settings.contestWindowMs &&
       (!contest || contest.status === 'withdrawn'),
   );
   let canVote = $derived(!!contest && !!meId && contest.status === 'open' && contest.voters.includes(meId) && !contest.votes[meId]);
 
-  /** Épisodes voisins de la même personne, pour « C'est le même ». */
+  /** Épisodes voisins de la même personne, pour « C'est le même » (mêmes règles que le serveur). */
   let neighbours = $derived.by(() => {
-    if (!episode || !app.view || episode.kind !== 'live') return [];
-    const window = Math.max(app.view.settings.suggestWindowMs, 120_000);
-    return app.view.recent.filter(
-      (e) => e.id !== episode.id && e.targetId === episode.targetId && e.kind === 'live' && !e.voided && e.points > 0 && Math.abs(e.startedAt - episode.startedAt) <= window,
+    if (!episode || !app.view || episode.kind !== 'live' || episode.voided || judged) return [];
+    const view = app.view;
+    const window = Math.max(view.settings.suggestWindowMs, 120_000);
+    const limits = boundariesOf(view.settings.challengeStartedAt, view.seasons);
+    const side = segmentOf(episode.startedAt, limits);
+    return view.recent.filter(
+      (e) =>
+        e.id !== episode.id &&
+        e.targetId === episode.targetId &&
+        e.kind === 'live' &&
+        !e.voided &&
+        e.points > 0 &&
+        Math.abs(e.startedAt - episode.startedAt) <= window &&
+        segmentOf(e.startedAt, limits) === side &&
+        (!e.contest || e.contest.status === 'withdrawn'),
     );
   });
 
@@ -86,7 +109,7 @@
 
 <Sheet title={target ? `${plural(episode?.points ?? 0, 'point')} pour ${target.name}` : 'Détails'} {onClose}>
   {#if !episode}
-    <p class="muted">{missing ? 'Ce point est introuvable.' : 'Chargement…'}</p>
+    <p class="muted">{gone ? 'Ce point est introuvable.' : 'Chargement…'}</p>
   {:else}
     <p class="when">{longDate(episode.startedAt)}{#if episode.kind === 'manual'}{' · '}rattrapé après coup{/if}</p>
     {#if episode.voided}
@@ -111,22 +134,22 @@
               {#if r.cancelledAt !== null}retiré{#if r.cancelledBy && r.cancelledBy !== r.reporterId}{' '}par {app.name(r.cancelledBy)}{/if}{:else}{linkLabel(r) ?? 'premier signalement'}{/if}
             </div>
           </div>
-          {#if r.cancelledAt === null && (r.reporterId === meId || isAdmin) && !episode.id.startsWith('pending-')}
+          {#if r.cancelledAt === null && (r.reporterId === meId || (isAdmin && episode.targetId !== meId))}
             <div class="actions">
-              {#if episode.kind === 'live' && activeReports.length > 1 && r.reporterId === meId}
+              {#if !isPending && episode.kind === 'live' && !episode.voided && !judged && activeReports.length > 1 && r.reporterId === meId}
                 <button class="btn small" disabled={busy} onclick={() => run(() => app.splitTap(r.id))}>C'est un autre</button>
               {/if}
               {#if r.reporterId === meId}
                 <button class="btn small" disabled={busy} onclick={() => app.openWord(r.id, episode.targetId)}>Mot</button>
               {/if}
-              <button class="btn small danger" disabled={busy} onclick={() => run(() => app.cancelReport(r.id))}>Retirer</button>
+              <button class="btn small danger" disabled={busy} onclick={() => app.cancelTap(r.id)}>Retirer</button>
             </div>
           {/if}
         </div>
       {/each}
     </div>
 
-    {#if neighbours.length && activeReports.some((r) => r.reporterId === meId)}
+    {#if neighbours.length && !isPending && activeReports.some((r) => r.reporterId === meId)}
       <h3 class="eyebrow">C'est le même gros mot qu'un autre ?</h3>
       <div class="list">
         {#each neighbours as n (n.id)}
@@ -140,7 +163,10 @@
     {/if}
 
     {#if contest}
-      <h3 class="eyebrow"><span class="var">VAR</span> {statusText[contest.status]}</h3>
+      <h3 class="eyebrow">
+        <span class="var">VAR</span>
+        {contest.status === 'withdrawn' && episode.voided && episode.voidReason === 'admin' ? 'Close : point annulé par l’admin' : statusText[contest.status]}
+      </h3>
       <div class="list">
         <div class="row column">
           <p class="contest-head">
@@ -184,7 +210,7 @@
       </div>
     {/if}
 
-    {#if isAdmin && !episode.id.startsWith('pending-')}
+    {#if isAdmin && !isPending && episode.targetId !== meId}
       <h3 class="eyebrow">Admin</h3>
       <div class="list">
         <div class="row column">

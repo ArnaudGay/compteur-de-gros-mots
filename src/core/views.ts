@@ -3,7 +3,8 @@
 import { currentSeason, eligibleVoters, episodePoints, toReportLike } from './commands';
 import { activeReporters } from './merge';
 import type { Store } from './store';
-import { DAY, startOfDay, startOfMonth, startOfWeek } from './time';
+import { addToTotals, periodBounds, type Bounds } from './periods';
+import { DAY } from './time';
 import type {
   Contest,
   ContestView,
@@ -16,26 +17,10 @@ import type {
   Snapshot,
 } from './types';
 
-export interface Bounds {
-  /** Début de la période « total » : lancement officiel, ou rien en phase de test. */
-  all: Millis;
-  today: Millis;
-  week: Millis;
-  month: Millis;
-  season: { start: Millis; end: Millis } | null;
-}
+export type { Bounds } from './periods';
 
 export function bounds(store: Store, now: Millis): Bounds {
-  const tz = store.settings.timeZone;
-  const all = store.settings.challengeStartedAt ?? Number.NEGATIVE_INFINITY;
-  const season = currentSeason(store, now);
-  return {
-    all,
-    today: Math.max(all, startOfDay(now, tz)),
-    week: Math.max(all, startOfWeek(now, tz)),
-    month: Math.max(all, startOfMonth(now, tz)),
-    season: season ? { start: Math.max(all, season.startsAt), end: season.endsAt ?? Number.POSITIVE_INFINITY } : null,
-  };
+  return periodBounds(store.settings, currentSeason(store, now), now);
 }
 
 /** Mot le plus cité par les témoins d'un épisode. */
@@ -102,15 +87,10 @@ export function computeTotals(store: Store, now: Millis): Record<PlayerId, Perio
   const totals: Record<PlayerId, PeriodTotals> = {};
   for (const p of store.players.values()) totals[p.id] = { today: 0, week: 0, month: 0, season: 0, all: 0 };
   for (const e of store.episodes.values()) {
-    if (e.voidedAt !== null || e.startedAt < b.all) continue;
+    if (e.voidedAt !== null) continue;
     const points = episodePoints(store, e);
     const t = totals[e.targetId];
-    if (!t || points === 0) continue;
-    t.all += points;
-    if (e.startedAt >= b.today) t.today += points;
-    if (e.startedAt >= b.week) t.week += points;
-    if (e.startedAt >= b.month) t.month += points;
-    if (b.season && e.startedAt >= b.season.start && e.startedAt < b.season.end) t.season += points;
+    if (t && points > 0) addToTotals(t, b, e.startedAt, points);
   }
   return totals;
 }

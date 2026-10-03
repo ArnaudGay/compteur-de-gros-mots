@@ -10,14 +10,35 @@
   let chosen = $state<LoginPlayer | null>(null);
   let busy = $state(false);
   let error = $state<string | null>(null);
-  let offline = $state(false);
+  let unreachable = $state(false);
+  let loading = $state(false);
   const webauthn = app.transport.demo || (typeof window !== 'undefined' && browserSupportsWebAuthn());
 
+  async function loadPlayers() {
+    loading = true;
+    try {
+      players = await app.transport.loginPlayers();
+      unreachable = false;
+    } catch {
+      unreachable = true;
+    }
+    loading = false;
+  }
+
+  // Serveur injoignable (pas de réseau, mise à jour en cours) : on réessaie dès que possible.
   $effect(() => {
-    app.transport
-      .loginPlayers()
-      .then((list) => (players = list))
-      .catch(() => (offline = true));
+    void loadPlayers();
+    const retry = () => {
+      if (unreachable && !loading && document.visibilityState === 'visible') void loadPlayers();
+    };
+    window.addEventListener('online', retry);
+    document.addEventListener('visibilitychange', retry);
+    const timer = setInterval(retry, 15_000);
+    return () => {
+      window.removeEventListener('online', retry);
+      document.removeEventListener('visibilitychange', retry);
+      clearInterval(timer);
+    };
   });
 
   async function submit(pin: string) {
@@ -54,8 +75,11 @@
     <p>Le compteur d'Arnaud, Alexis, Alexandre et Gatho.</p>
   </header>
 
-  {#if offline}
-    <p class="error">Pas de réseau. Reconnecte-toi pour te connecter.</p>
+  {#if unreachable}
+    <div class="unreachable">
+      <p class="error">Impossible de joindre le serveur. Vérifie ta connexion, puis réessaie.</p>
+      <button class="btn block" disabled={loading} onclick={loadPlayers}>{loading ? 'Connexion…' : 'Réessayer'}</button>
+    </div>
   {:else if !chosen}
     {#if webauthn}
       <button class="btn primary block faceid" disabled={busy} onclick={faceId}><Icon name="faceid" size={22} /> Se connecter avec Face ID</button>
@@ -120,6 +144,10 @@
   .faceid {
     min-height: 54px;
     font-size: var(--t-lg);
+  }
+  .unreachable {
+    display: grid;
+    gap: 12px;
   }
   .or {
     margin: 6px 0 0;

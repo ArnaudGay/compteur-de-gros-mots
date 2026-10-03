@@ -16,7 +16,7 @@
   let dayNumber = $derived(season && app.view ? daysBetween(today(season.startsAt), today(app.now)) + 1 : null);
   let period = $derived<Period>(view?.phase === 'live' && view.currentSeasonId ? 'season' : 'all');
   let total = $derived(view ? Object.values(view.totals).reduce((sum, t) => sum + t[period], 0) : 0);
-  let waiting = $derived(app.pending.filter((p) => p.state === 'queued').length);
+  let waiting = $derived(app.waiting);
   let latest = $derived(
     (view?.recent ?? [])
       .filter((e) => !e.voided && e.points > 0)
