@@ -1,6 +1,6 @@
 {
   "name": "compteur-de-gros-mots",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "Compteur de gros mots entre amis : temps réel, anti-doublons, pensé pour iPhone.",

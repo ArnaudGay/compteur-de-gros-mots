@@ -140,10 +140,10 @@ body {
 }
 
 :root {
-  /* Haut de l'écran laissé libre : l'encoche, et sur iOS 26 la zone floue de l'app installée (ci-dessous). */
-  --inset-top: env(safe-area-inset-top, 0px);
+  /* Espace laissé libre en haut de chaque page (voir ci-dessous) ; nul partout ailleurs. */
+  --glass-top: 0px;
   /* L'app occupe tout l'écran ; seules les zones de l'encoche et de la barre d'accueil restent libres. */
-  padding: var(--inset-top) 0 env(safe-area-inset-bottom, 0px);
+  padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
   background: var(--paper);
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
@@ -151,16 +151,16 @@ body {
 
 /*
  * iOS 26 et suivants : dans l'app installée, le système dessine un flou (« Liquid Glass ») sur
- * environ 40 points sous la barre d'état, et aucun réglage ne le coupe. Le contenu passe donc
- * sous cette zone, qui ne montre plus que le fond. Seulement sur iPhone, dans l'app installée,
- * en portrait, et quand la page passe sous la barre d'état (marge d'encoche non nulle, comme
- * avec iOS 26) : rien ne change dans le navigateur ni sur les iPhone plus anciens, où la barre
- * d'état est opaque et la marge d'encoche nulle.
+ * environ 40 points sous la barre d'état, que la page passe dessous ou non, et aucun réglage ne
+ * le coupe. Chaque page commence donc 2,5 rem plus bas : cette bande ne montre plus que le fond.
+ * Ciblage : iPhone (-webkit-touch-callout), Safari 26 ou plus (animations liées au défilement,
+ * arrivées avec Safari 26), app installée (classe posée au démarrage) et portrait. Rien ne
+ * change dans le navigateur ni sur les iPhone restés sous iOS 18 ou avant.
  */
-@supports (-webkit-touch-callout: none) {
-  @media (display-mode: standalone) and (orientation: portrait) {
-    :root {
-      --inset-top: calc(env(safe-area-inset-top, 0px) + min(2.5rem, env(safe-area-inset-top, 0px) * 100));
+@supports (-webkit-touch-callout: none) and (animation-timeline: scroll()) {
+  @media (orientation: portrait) {
+    :root.standalone {
+      --glass-top: 2.5rem;
     }
   }
 }

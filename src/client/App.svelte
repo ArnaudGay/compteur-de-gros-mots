@@ -94,12 +94,19 @@
   .screen {
     position: relative;
     min-height: 0;
+    padding-top: var(--glass-top);
     overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
   }
+  /* Le compteur ne défile jamais : « clip » coupe sans en faire une zone de défilement. */
   .screen.fixed {
     overflow: hidden;
+  }
+  @supports (overflow: clip) {
+    .screen.fixed {
+      overflow: clip;
+    }
   }
   .toast-anchor {
     position: relative;
@@ -108,6 +115,7 @@
   .plain {
     position: relative;
     height: 100%;
+    padding-top: var(--glass-top);
     overflow-y: auto;
   }
   .splash {
@@ -117,7 +125,7 @@
   }
   .demo-flag {
     position: fixed;
-    top: calc(var(--inset-top) + 6px);
+    top: calc(env(safe-area-inset-top, 0px) + var(--glass-top) + 6px);
     left: 50%;
     transform: translateX(-50%);
     z-index: 60;
