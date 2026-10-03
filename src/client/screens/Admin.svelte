@@ -241,7 +241,7 @@
       </div>
     </form>
   </div>
-  <p class="note muted">« Nouveau code » envoie un lien pour choisir un nouveau code (code oublié). Il est valable 7 jours et ne sert qu'une fois.</p>
+  <p class="note muted">« Nouveau code » envoie un lien pour choisir un nouveau code (code oublié). Il est valable 7 jours, ne sert qu'une fois et annule le lien précédent. Une fois le nouveau code choisi, les autres appareils de ce joueur sont déconnectés et Face ID est à réactiver.</p>
 
   <!-- Cagnotte et réglages -->
   <h2 class="eyebrow section-title">Cagnotte, fusion et VAR</h2>

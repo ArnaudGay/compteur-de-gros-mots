@@ -131,7 +131,7 @@ Sur l'iPhone :
 
 ## 7. Inviter les autres
 
-Dans l'app : **Plus → Administration → Joueurs → Inviter**. La feuille de partage d'iOS s'ouvre : envoie le lien à chacun par message. Chaque lien est personnel, valable 7 jours, et ne sert qu'une fois.
+Dans l'app : **Plus → Administration → Joueurs → Inviter**. La feuille de partage d'iOS s'ouvre : envoie le lien à chacun par message. Chaque lien est personnel, valable 7 jours, et ne sert qu'une fois. Créer un nouveau lien pour la même personne annule le précédent (pratique si un lien est parti dans la mauvaise conversation).
 
 ## 8. Tester puis lancer le défi
 
@@ -208,5 +208,5 @@ Journaux : `docker compose logs -f app` et `docker compose logs -f caddy`.
 | Les notifications n'arrivent pas | L'app doit être installée sur l'écran d'accueil (iOS 16.4 ou plus), et les notifications autorisées dans **Plus → Mon compte** puis dans les réglages de l'iPhone |
 | Face ID ne marche plus après un changement d'adresse | Les passkeys sont liées au domaine : réactive Face ID dans **Mon compte** |
 | L'app ne se met pas à jour sur l'iPhone | Ferme-la complètement et rouvre-la : la nouvelle version s'applique au retour |
-| Code oublié | Face ID si activé, sinon l'admin envoie un nouveau lien (**Administration → Nouveau code**) |
+| Code oublié | Face ID si activé, sinon l'admin envoie un nouveau lien (**Administration → Nouveau code**). Le nouveau code déconnecte les autres appareils de ce joueur, et Face ID est à réactiver |
 | « reconnexion… » permanent | `docker compose ps` : l'app tourne-t-elle ? Un proxy entre Caddy et l'app qui mettrait les réponses en tampon ? |
