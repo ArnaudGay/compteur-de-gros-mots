@@ -1,0 +1,44 @@
+# Gros mots sur le VPS : l'app + Caddy (HTTPS automatique avec Let's Encrypt).
+# Lancement : docker compose up -d --build   (voir DEPLOY.md)
+
+services:
+  app:
+    build: .
+    image: gros-mots:latest
+    restart: unless-stopped
+    environment:
+      PUBLIC_ORIGIN: https://${DOMAIN:-grosmots.arnaudgay.fr}
+      TRUST_PROXY: "1"
+      # Facultatif : clés VAPID fixes pour les notifications (sinon générées et gardées dans la base).
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+    volumes:
+      - gros-mots-data:/data
+    expose:
+      - "8787"
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "3"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:-grosmots.arnaudgay.fr}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+
+volumes:
+  gros-mots-data:
+  caddy-data:
+  caddy-config:

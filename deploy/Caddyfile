@@ -1,0 +1,7 @@
+# Caddy obtient et renouvelle tout seul le certificat HTTPS (Let's Encrypt).
+# Le flux temps réel (SSE) est transmis sans tampon automatiquement.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:8787
+	header -Server
+}
